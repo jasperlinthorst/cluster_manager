@@ -500,7 +500,7 @@ def start_controller(gb,status):
         cwd = os.getcwd()
         engine_json_path = "./profile/security/ipcontroller-engine.json"
         client_json_path = "./profile/security/ipcontroller-client.json"
-        cmd = "ipcontroller --HubFactory.iopub=%d,%d" % (int(status.iport) - 4, int(status.iport) + 7) +" --HubFactory.task=%d,%d" % (int(status.iport) - 3, int(status.iport) + 6) + " --HubFactory.mux=%d,%d" % (int(status.iport) - 2, int(status.iport) + 5) + " --HubFactory.control=%d,%d" % (int(status.iport) - 1, int(status.iport) + 4) + " --HubFactory.hb=%d,%d" % (int(status.iport) + 2, int(status.iport) + 3) + " --port=" + str(status.iport) + " --quiet --sqlitedb --location=" + status.address + " --hwm=" + str(status.hwm) + " --usethreads" + " --ip=*" + " --ProfileDir.location=" + cwd + "/profile/"
+        cmd = "ipcontroller --HubFactory.iopub=%d,%d" % (int(status.iport) - 4, int(status.iport) + 7) +" --HubFactory.task=%d,%d" % (int(status.iport) - 3, int(status.iport) + 6) + " --HubFactory.mux=%d,%d" % (int(status.iport) - 2, int(status.iport) + 5) + " --HubFactory.control=%d,%d" % (int(status.iport) - 1, int(status.iport) + 4) + " --HubFactory.hb=%d,%d" % (int(status.iport) + 2, int(status.iport) + 3) + " --port=" + str(status.iport) + " --quiet --nodb --location=" + status.address + " --hwm=" + str(status.hwm) + " --usethreads" + " --ip=*" + " --ProfileDir.location=" + cwd + "/profile/"
         add_log_line(gb,"Executing: " + cmd, GREEN)
         args = shlex.split(cmd)
         pc = Popen(args, stdout = subprocess.PIPE, stderr = subprocess.PIPE)
@@ -523,7 +523,7 @@ def start_controller(gb,status):
         time.sleep(5)
         while(retry):
             try:
-                status.taskclient = Client(client_json_path).load_balanced_view()
+                status.taskclient = Client(client_json_path)
                 retry = 0
             except Exception, e:
                 retry -=1
@@ -1036,10 +1036,11 @@ def thread_check_commands():
             status.engine_type_count = engine_type_count
             status.engine_type_stats = engine_type_stats
             #also monitor controller cpu usage
-            if(status.controller_monitor):
+            if (status.controller_monitor):
                 status.controller_cpu = status.controller_monitor.get_cpu_percent()
-            if(status.taskclient):
+            if (status.taskclient):
                 status.queue_status = status.taskclient.queue_status()
+		status.taskclient.purge_local_results('all')
         finally:
             status.lock.release()
         time.sleep(5)
@@ -1232,6 +1233,8 @@ def main(scr, *args, **kwds):
                 cmd = get_number(gb, "Number of engines (def=all): ",sum(status.grid_engines_count))
                 if(not cmd is None):
                     stop_grid(gb,status,cmd)
+	    elif c == ord('u') :  # Update ncurses screen
+	   	curses.doupdate()
     except Exception:
         add_log_line(gb,"EXCEPTION!!! EMERGENCY SHUTDOWN IN PROGRESS!",RED)
         try:
