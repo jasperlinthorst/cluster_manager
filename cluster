@@ -25,6 +25,7 @@ BLUE=5
 CYAN=6
 
 TIMEOUT=480
+PURGE_INTERVAL=1800
 
 #current screen info
 class gb:
@@ -67,6 +68,8 @@ class status:
     
     engine_type_count = defaultdict(int)
     engine_type_stats = dict()
+
+    last_purge = -1
 NOSTAT = (0.0, 0.0, 0.0, 0.0, 0.0)
 
 def get_queue_status(status, type) :
@@ -982,6 +985,26 @@ def thread_start_server(port):
     Commands.server = server
     server.serve_forever()
 
+def thread_purge() :
+    while True :
+        status.lock.acquire()
+	client = None
+	now = time.time()
+	last_purge = None
+        try:
+             if (status.taskclient):
+		  status.last_purge = now
+		  last_purge = status.last_purge
+		  client = status.taskclient
+        finally:
+             status.lock.release()
+	
+	try :
+    	     if client and now - last_purge > PURGE_INTERVAL :
+	          client.purge_local_results('all')
+	finally :
+	     pass
+        time.sleep(5)
 
 def thread_check_commands():
     while 1:
@@ -1030,19 +1053,17 @@ def thread_check_commands():
             mem_max = float(numpy.mean(memvirt))
 
             engine_type_stats[type] = (cpu_mean,memp_mean,memp_max,mem_mean,mem_max)
-
-        status.lock.acquire()
-        try:
-            status.engine_type_count = engine_type_count
-            status.engine_type_stats = engine_type_stats
-            #also monitor controller cpu usage
-            if (status.controller_monitor):
-                status.controller_cpu = status.controller_monitor.get_cpu_percent()
-            if (status.taskclient):
-                status.queue_status = status.taskclient.queue_status()
-		status.taskclient.purge_local_results('all')
+    	status.lock.acquire()
+    	try:
+             status.engine_type_count = engine_type_count
+             status.engine_type_stats = engine_type_stats
+             if (status.controller_monitor):
+                  status.controller_cpu = status.controller_monitor.get_cpu_percent()
+             if (status.taskclient):
+                  status.queue_status = status.taskclient.queue_status()
         finally:
-            status.lock.release()
+             status.lock.release()
+
         time.sleep(5)
 
 
@@ -1051,6 +1072,9 @@ def start_server(port):
     t.daemon=True
     t.start()
     t = threading.Thread(target=thread_check_commands)
+    t.daemon=True
+    t.start()
+    t = threading.Thread(target=thread_purge)
     t.daemon=True
     t.start()
 
