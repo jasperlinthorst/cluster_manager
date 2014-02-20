@@ -270,7 +270,7 @@ def start_status_display(gb,status):
     return t
 
 def stop_status_display(status,t):
-    set_status_message(gb,"Waiting for status thread to terminate..",YELLOW)
+    set_status_message(gb, "Waiting for status thread to terminate..", YELLOW)
     status.stop_status_display = True
     t.join()
 
@@ -385,10 +385,10 @@ def add_log_line(gb,line,color=0):
         gb.lock.release()
 
 #set status message iin status window
-def set_status_message(gb,line,color=0):
+def set_status_message(gb, line, color = 0):
     gb.lock.acquire()
     try:
-        if(gb.wstatus):
+        if (gb.wstatus) :
             gb.wstatus.addstr(0,0,line,curses.color_pair(color))
             gb.wstatus.clrtoeol()
             gb.wstatus.refresh()
@@ -547,7 +547,7 @@ def restart_controller(gb, status):
     status.lock.acquire()
     try :
         status.taskclient = None
-        if (controller_online(status)) :
+        if controller_online(status) :
             status.controller.terminate()
             status.controller = None
             status.controller_monitor = None
@@ -1011,11 +1011,17 @@ def reload() :
     return True
     
 def report_restart() :
-    if controller_online(status) and status.controller_mem >= 3072.0 :
-        #add_log_line(gb, "Client is ready for restart", CYAN)
-    	restart_controller()
-	return True
-    return False
+    status.lock.acquire()
+    result = True
+    try :
+        add_log_line(gb, 'Current mem: %.2f' % status.controller_mem, CYAN)
+        if controller_online(status) and status.controller_mem >= 40.0 :#3072.0 :
+    	    restart_controller(gb, status)
+        else :
+            result = False
+    finally :
+        status.lock.release()
+    return result
 
 def _unregister(myid):
     Commands.lock.acquire()
