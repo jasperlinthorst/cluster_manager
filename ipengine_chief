@@ -100,7 +100,7 @@ def start_engine(mycodeid):
     return lengine
 
 def stop_engine(lengine):
-    if(lengine.poll() is None):
+    if lengine.poll() is None :
         lengine.terminate() 
 
 def handler(signum,frame):
@@ -118,30 +118,34 @@ try:
     lengine = start_engine(mycodeid)
     lengine_monitor = psutil.Process(lengine.pid)
     while 1:
-        if(not lengine.poll() is None):
+        if lengine.poll() is not None:
+            del lengine
             s.unregister(myid)
             break
         
         e_cpu = lengine_monitor.get_cpu_percent()
         e_mem = lengine_monitor.get_memory_percent()
-        e_memphys,e_memvirt = lengine_monitor.get_memory_info()
+        e_memphys, e_memvirt = lengine_monitor.get_memory_info()
 
-        cmd,param = s.poll(myid,e_cpu,e_mem * e_ncpu, e_memphys / 1024.0 / 1024.0, e_memvirt / 1024.0 / 1024.0)
-        print "POLL",cmd
+        cmd, param = s.poll(myid, e_cpu, e_mem * e_ncpu, e_memphys / 1024.0 / 1024.0, e_memvirt / 1024.0 / 1024.0)
+        print "POLL", cmd
 
-        if(cmd):
-            if(cmd == DIE):
+        if cmd :
+            if (cmd == DIE) :
                 stop_engine(lengine)
+                del lengine
                 s.unregister(myid)
                 break
-            elif(cmd == RESTART_ENGINE):
+            elif (cmd == RESTART_ENGINE) :
                 stop_engine(lengine)
+                del lengine
                 lengine = start_engine(param)
                 lengine_monitor = psutil.Process(lengine.pid)
                 continue
-            else:
+            else :
                 print "UNKNOWN COMMAND RECEIVED, EXITING!"
                 stop_engine(lengine)
+                del lengine
                 break
         time.sleep(120)
 except (Exception, KeyboardInterrupt, SystemExit):

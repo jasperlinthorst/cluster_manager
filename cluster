@@ -13,6 +13,7 @@ from dns import resolver,reversename
 from SimpleXMLRPCServer import SimpleXMLRPCServer
 import random
 import psutil
+import shutil
 import numpy
 from IPython.parallel import Client
 
@@ -505,7 +506,7 @@ def start_controller(gb,status):
         cwd = os.getcwd()
         engine_json_path = "./profile/security/ipcontroller-engine.json"
         client_json_path = "./profile/security/ipcontroller-client.json"
-        cmd = "ipcontroller --HubFactory.iopub=%d,%d" % (int(status.iport) - 4, int(status.iport) + 7) +" --HubFactory.task=%d,%d" % (int(status.iport) - 3, int(status.iport) + 6) + " --HubFactory.mux=%d,%d" % (int(status.iport) - 2, int(status.iport) + 5) + " --HubFactory.control=%d,%d" % (int(status.iport) - 1, int(status.iport) + 4) + " --HubFactory.hb=%d,%d" % (int(status.iport) + 2, int(status.iport) + 3) + " --port=" + str(status.iport) + " --quiet --nodb --location=" + status.address + " --hwm=" + str(status.hwm) + " --usethreads" + " --ip=*" + " --ProfileDir.location=" + cwd + "/profile/"
+        cmd = "ipcontroller --HubFactory.iopub=%d,%d" % (int(status.iport) - 4, int(status.iport) + 7) +" --HubFactory.task=%d,%d" % (int(status.iport) - 3, int(status.iport) + 6) + " --HubFactory.mux=%d,%d" % (int(status.iport) - 2, int(status.iport) + 5) + " --HubFactory.control=%d,%d" % (int(status.iport) - 1, int(status.iport) + 4) + " --HubFactory.hb=%d,%d" % (int(status.iport) + 2, int(status.iport) + 3) + " --port=" + str(status.iport) + " --nodb --quiet --location=" + status.address + " --hwm=" + str(status.hwm) + " --usethreads" + " --ip=*" + " --ProfileDir.location=" + cwd + "/profile/"
         add_log_line(gb,"Executing: " + cmd, GREEN)
         args = shlex.split(cmd)
         pc = Popen(args, stdout = subprocess.PIPE, stderr = subprocess.PIPE)
@@ -544,20 +545,29 @@ def start_controller(gb,status):
 def restart_controller(gb, status):
     set_status_message(gb, "Restarting controller...", YELLOW)
     set_progress_bar(gb, 0.0)
+    cwd = os.getcwd()
+    engine_json_path = "./profile/security/ipcontroller-engine.json"
+    client_json_path = "./profile/security/ipcontroller-client.json"
     status.lock.acquire()
     try :
         status.taskclient = None
         if controller_online(status) :
-            status.controller.terminate()
+            shutil.move(client_json_path, client_json_path + '.bak')
+            shutil.move(engine_json_path, engine_json_path + '.bak')
+            status.controller.kill()
             status.controller = None
             status.controller_monitor = None
-	    status.controller_cpu, status.controller_mem = 0.0, 0.0
-            time.sleep(2) #finishes log output, lets threads terminate
-        
-	cwd = os.getcwd()
-        engine_json_path = "./profile/security/ipcontroller-engine.json"
-        client_json_path = "./profile/security/ipcontroller-client.json"
-        cmd = "ipcontroller --HubFactory.iopub=%d,%d" % (int(status.iport) - 4, int(status.iport) + 7) + " --HubFactory.task=%d,%d" % (int(status.iport) - 3, int(status.iport) + 6) + " --HubFactory.mux=%d,%d" % (int(status.iport) - 2, int(status.iport) + 5) + " --HubFactory.control=%d,%d" % (int(status.iport) - 1, int(status.iport) + 4) + " --HubFactory.hb=%d,%d" % (int(status.iport) + 2, int(status.iport) + 3) + " --port=" + str(status.iport) + " --quiet --reuse --nodb --location=" + status.address + " --hwm=" + str(status.hwm) + " --usethreads" + " --ip=*" + " --ProfileDir.location=" + cwd + "/profile/"
+            status.controller_cpu, status.controller_mem = 0.0, 0.0
+    finally :
+        status.lock.release()
+    
+    time.sleep(4) #finishes log output, lets threads terminate
+    
+    cmd = "ipcontroller --HubFactory.iopub=%d,%d" % (int(status.iport) - 4, int(status.iport) + 7) + " --HubFactory.task=%d,%d" % (int(status.iport) - 3, int(status.iport) + 6) + " --HubFactory.mux=%d,%d" % (int(status.iport) - 2, int(status.iport) + 5) + " --HubFactory.control=%d,%d" % (int(status.iport) - 1, int(status.iport) + 4) + " --HubFactory.hb=%d,%d" % (int(status.iport) + 2, int(status.iport) + 3) + " --port=" + str(status.iport) + " --reuse --restore --quiet --nodb --location=" + status.address + " --hwm=" + str(status.hwm) + " --usethreads" + " --ip=*" + " --ProfileDir.location=" + cwd + "/profile/"
+    status.lock.acquire()
+    try :
+        shutil.move(client_json_path + '.bak', client_json_path)
+        shutil.move(engine_json_path + '.bak', engine_json_path)
         add_log_line(gb, "Executing: " + cmd, GREEN)
         args = shlex.split(cmd)
         pc = Popen(args, stdout = subprocess.PIPE, stderr = subprocess.PIPE)
@@ -578,7 +588,7 @@ def restart_controller(gb, status):
         retry = 3
         set_status_message(gb, "Starting controller client...", YELLOW)
         time.sleep(5)
-        while(retry):
+        while (retry):
             try:
                 status.taskclient = Client(client_json_path)
                 retry = 0
@@ -1015,7 +1025,7 @@ def report_restart() :
     result = True
     try :
         add_log_line(gb, 'Current mem: %.2f' % status.controller_mem, CYAN)
-        if controller_online(status) and status.controller_mem >= 40.0 :#3072.0 :
+        if controller_online(status) and status.controller_mem >= 4096.0 :
     	    restart_controller(gb, status)
         else :
             result = False
