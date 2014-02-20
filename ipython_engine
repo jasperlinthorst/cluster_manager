@@ -9,4 +9,4 @@ echo "Waiting..."
 WAIT=$[ ($RANDOM % 180) ]
 sleep $WAIT
 echo "Waiting period over for $PARAMNR, starting chief."
-/data/home/alexeyg/apps/env/sys_enhance/usr/local/cluster_manager/ipengine_chief -t PBS -a $ADDRESS -p $PORT
+XXAPPPATHXX/ipengine_chief -t PBS -a $ADDRESS -p $PORT
