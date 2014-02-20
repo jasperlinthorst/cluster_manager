@@ -1311,7 +1311,9 @@ def main(scr, *args, **kwds):
 
             elif c == ord('y'): #RESTART CONTROLLER
                 if (controller_online(status)) :
-                    restart_controller(gb,status)
+                    ans = enter_command(gb, "Are you sure? (yes/no): ")
+                    if ans == 'yes' :
+                        restart_controller(gb,status)
                 else:
                     set_status_message(gb, "Controller not started", YELLOW)
             
