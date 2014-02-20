@@ -1024,7 +1024,7 @@ def report_restart() :
     status.lock.acquire()
     result = True
     try :
-        add_log_line(gb, 'Current mem: %.2f' % status.controller_mem, CYAN)
+        add_log_line(gb, 'Client reported for restart (%.2fMB used)' % status.controller_mem, CYAN)
         if controller_online(status) and status.controller_mem >= 4096.0 :
     	    restart_controller(gb, status)
         else :
