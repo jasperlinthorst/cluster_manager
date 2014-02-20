@@ -54,6 +54,7 @@ class status:
     taskclient = None
     queue_status = defaultdict(int)
     controller_cpu = 0.0
+    controller_mem = 0.0
     
     local_engines = []
 
@@ -104,25 +105,24 @@ def border_win(parent,height,width,x,y,**kwargs):
 
 
 #threaded output of a file to the log window
-def thread_log_output(file,gb,color,filter):
-    while 1:
+def thread_log_output(file, gb, color, filter):
+    while 1 :
         line = file.readline()
-        if(not line):
+        if (not line):
             break
          
-        if(filter and len([f for f in filter if f in line]) > 0):
+        if (filter and len([f for f in filter if f in line]) > 0) :
             pass
         else:    
             add_log_line(gb,line,color)
 
-def log_output(file,gb,color=0,filter=[]):
-    t = thread.start_new_thread(thread_log_output,(file,gb,color,filter))
+def log_output(file, gb, color = 0, filter = []):
+    t = thread.start_new_thread(thread_log_output, (file, gb, color, filter))
     return t
 
-
 def get_pbs_stats(status):
-    if(not status.pbs_engines):
-        return (0,0,0)
+    if (not status.pbs_engines):
+        return (0, 0, 0)
     status.lock.acquire()
     try:
         cmd = "qstat " + " ".join(status.pbs_engines)
@@ -164,16 +164,17 @@ def thread_display_status(gb,status):
                 sizey = gb.wcom_status.getmaxyx()[1]
                 gb.wcom_status.erase()
                 gb.wcom_status.addstr(1,1,"Controller: ")
-                if(controller_online(status)):
+                if controller_online(status) :
                     r = status.controller_cpu / 100.0
-                    if(r > 0.80):
+		    mem = status.controller_mem
+                    if (r > 0.80 or mem >= 4096.0):
                         color = RED
-                    elif(r > 0.50):
+                    elif(r > 0.50 or mem >= 2048.0):
                         color = YELLOW
                     else:
                         color = GREEN
                     gb.wcom_status.addstr(1,18,"ONLINE", curses.color_pair(color))
-                    gb.wcom_status.addstr(1,52,"(" +  '{:.2%}'.format(r) + " CPU)",curses.color_pair(color))
+                    gb.wcom_status.addstr(1,52,"(" +  '{:.2%}'.format(r) + " CPU, " + '%.2f' % mem + "MB MEM)",curses.color_pair(color))
                 else:
                     gb.wcom_status.addstr(1,18,"OFFLINE",curses.color_pair(YELLOW))
                 
@@ -439,7 +440,8 @@ def init_commands(gb):
             gb.wcom.addstr(4,1,"Start/stop GRID engines: f/v [n]")
             gb.wcom.addstr(5,1,"Reload all engines: w")
             gb.wcom.addstr(6,1,"Restart all engines: e")
-            gb.wcom.addstr(8,1,"Shutdown: q")
+            gb.wcom.addstr(7,1,"Restart controller: y")
+            gb.wcom.addstr(9,1,"Shutdown: q")
             gb.wcom.refresh()
     except Exception, e:
         pass
@@ -511,8 +513,8 @@ def start_controller(gb,status):
         status.controller_monitor = psutil.Process(pc.pid)
     finally:
         status.lock.release()
-    log_output(pc.stdout,gb,WHITE,['distributing Tasks','Getting task result','Queuing task','sync properties','Clearing','Cleared'])
-    log_output(pc.stderr,gb,RED)
+    log_output(pc.stdout, gb, WHITE, ['distributing Tasks', 'Getting task result', 'Queuing task', 'sync properties', 'Clearing', 'Cleared'])
+    log_output(pc.stderr, gb, RED)
     set_progress_bar(gb,0.4)
 
     while(pc.poll() is None and not os.path.exists(engine_json_path)):
@@ -538,6 +540,58 @@ def start_controller(gb,status):
         set_status_message(gb,"Controller online",GREEN)
         add_log_line(gb,"Controller brought online",MAGENTA)
 
+#start ipython cluster controller
+def restart_controller(gb, status):
+    set_status_message(gb, "Restarting controller...", YELLOW)
+    set_progress_bar(gb, 0.0)
+    status.lock.acquire()
+    try :
+        status.taskclient = None
+        if (controller_online(status)) :
+            status.controller.terminate()
+            status.controller = None
+            status.controller_monitor = None
+	    status.controller_cpu, status.controller_mem = 0.0, 0.0
+            time.sleep(2) #finishes log output, lets threads terminate
+        
+	cwd = os.getcwd()
+        engine_json_path = "./profile/security/ipcontroller-engine.json"
+        client_json_path = "./profile/security/ipcontroller-client.json"
+        cmd = "ipcontroller --HubFactory.iopub=%d,%d" % (int(status.iport) - 4, int(status.iport) + 7) + " --HubFactory.task=%d,%d" % (int(status.iport) - 3, int(status.iport) + 6) + " --HubFactory.mux=%d,%d" % (int(status.iport) - 2, int(status.iport) + 5) + " --HubFactory.control=%d,%d" % (int(status.iport) - 1, int(status.iport) + 4) + " --HubFactory.hb=%d,%d" % (int(status.iport) + 2, int(status.iport) + 3) + " --port=" + str(status.iport) + " --quiet --reuse --nodb --location=" + status.address + " --hwm=" + str(status.hwm) + " --usethreads" + " --ip=*" + " --ProfileDir.location=" + cwd + "/profile/"
+        add_log_line(gb, "Executing: " + cmd, GREEN)
+        args = shlex.split(cmd)
+        pc = Popen(args, stdout = subprocess.PIPE, stderr = subprocess.PIPE)
+        status.controller = pc
+        status.controller_monitor = psutil.Process(pc.pid)
+    finally :
+        status.lock.release()
+    log_output(pc.stdout, gb, WHITE, ['distributing Tasks', 'Getting task result', 'Queuing task', 'sync properties', 'Clearing', 'Cleared'])
+    log_output(pc.stderr, gb, RED)
+    set_progress_bar(gb, 0.4)
+
+    while (pc.poll() is None and not os.path.exists(engine_json_path)) :
+        time.sleep(1)
+
+    if (not pc.poll() is None) :
+        set_status_message(gb, "Controller startup failed!", RED)
+    else:
+        retry = 3
+        set_status_message(gb, "Starting controller client...", YELLOW)
+        time.sleep(5)
+        while(retry):
+            try:
+                status.taskclient = Client(client_json_path)
+                retry = 0
+            except Exception, e:
+                retry -=1
+                if (retry == 0):
+                    raise e
+                else:
+                    time.sleep(15)
+        stop_progress_bar(gb)
+        set_status_message(gb, "Controller online", GREEN)
+        add_log_line(gb, "Controller brought online", MAGENTA)
+
 #stop ipython cluster controller
 def stop_controller(gb,status):
     status.lock.acquire()
@@ -551,10 +605,11 @@ def stop_controller(gb,status):
         
         status.taskclient = None
         set_status_message(gb,"Waiting for controller to terminate..", YELLOW)
-        if(controller_online(status)):
+        if (controller_online(status)) :
             status.controller.terminate()
             status.controller = None
             status.controller_monitor = None
+	    status.controller_cpu, status.controller_mem = 0.0, 0.0
             time.sleep(2) #finishes log output, lets threads terminate
     finally:
         status.lock.release()
@@ -946,16 +1001,21 @@ def poll(myid,cpu_usage,mem_usage,memphys,memvirt):
     return cmd, param
         
 
-def unregister(myid):
+def unregister(myid) :
     et = _unregister(myid)
     add_log_line(gb,"Engine (" + et + ") with id " + myid + " unregistered",CYAN)
     return True
 
-def reload():
+def reload() :
     reload_engines(gb,status, upload=False)
     return True
     
-    
+def report_restart() :
+    if controller_online(status) and status.controller_mem >= 3072.0 :
+        #add_log_line(gb, "Client is ready for restart", CYAN)
+    	restart_controller()
+	return True
+    return False
 
 def _unregister(myid):
     Commands.lock.acquire()
@@ -977,11 +1037,12 @@ def _unregister(myid):
 
 def thread_start_server(port):
     Commands.lock = threading.RLock()
-    server = SimpleXMLRPCServer(("", int(port)),logRequests=False)
+    server = SimpleXMLRPCServer(("", int(port)), logRequests = False)
     server.register_function(register)
     server.register_function(unregister)
     server.register_function(poll)
     server.register_function(reload)
+    server.register_function(report_restart)
     Commands.server = server
     server.serve_forever()
 
@@ -1059,6 +1120,8 @@ def thread_check_commands():
              status.engine_type_stats = engine_type_stats
              if (status.controller_monitor):
                   status.controller_cpu = status.controller_monitor.get_cpu_percent()
+    		  used_r, used_v = status.controller_monitor.get_memory_info()
+		  status.controller_mem = used_r / 1024.0 ** 2
              if (status.taskclient):
                   status.queue_status = status.taskclient.queue_status()
         finally:
@@ -1207,16 +1270,22 @@ def main(scr, *args, **kwds):
             if c == curses.KEY_RESIZE:
                 build_windows(gb)
             elif c == ord('q'):  #QUIT
-                stop_controller(gb,status)
-                stop_status_display(status,t)
-                gb.scr.refresh()
-                break
+                ans = enter_command(gb, "Are you sure? (yes/no): ")
+		if ans == 'yes' :
+                    stop_controller(gb,status)
+                    stop_status_display(status,t)
+                    gb.scr.refresh()
+                    break
                 
             elif c == ord('w'): #RELOAD ENGINES
-                reload_engines(gb,status)
+                ans = enter_command(gb, "Are you sure? (yes/no): ")
+		if ans == 'yes' :
+                    reload_engines(gb,status)
 
             elif c == ord('e'): #RESTART ENGINES
-                restart_engines(gb,status)
+                ans = enter_command(gb, "Are you sure? (yes/no): ")
+		if ans == 'yes' :
+                    restart_engines(gb,status)
             
             elif c == ord('a'): #START CONTROLLER
                 if(not controller_online(status)):
@@ -1224,8 +1293,16 @@ def main(scr, *args, **kwds):
                 else:
                     set_status_message(gb,"Controller already started",YELLOW)
 
-            elif c == ord('z'):  #STOP CONTROLLER
-                stop_controller(gb,status)
+            elif c == ord('y'): #RESTART CONTROLLER
+                if (controller_online(status)) :
+                    restart_controller(gb,status)
+                else:
+                    set_status_message(gb, "Controller not started", YELLOW)
+            
+	    elif c == ord('z'):  #STOP CONTROLLER
+                ans = enter_command(gb, "Are you sure? (yes/no): ")
+		if ans == 'yes' :
+                    stop_controller(gb,status)
 
             elif c == ord('s'):  #START local engines
                 cmd = get_number(gb, "Number of engines (def=4): ",4)
@@ -1258,7 +1335,7 @@ def main(scr, *args, **kwds):
                 if(not cmd is None):
                     stop_grid(gb,status,cmd)
 	    elif c == ord('u') :  # Update ncurses screen
-	   	curses.doupdate()
+                gb.scr.refresh()
     except Exception:
         add_log_line(gb,"EXCEPTION!!! EMERGENCY SHUTDOWN IN PROGRESS!",RED)
         try:
