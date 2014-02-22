@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-import subprocess, sys, getopt, time,shlex
+import subprocess, sys, getopt, time, shlex
 from subprocess import Popen
 import xmlrpclib
 import httplib
@@ -9,83 +9,83 @@ import os,sys
 import signal
 import psutil
 import shutil
-from dns import resolver,reversename
+from dns import resolver, reversename
 
-TIMEOUT=30
+PING_TIMEOUT = 480
+REQUEST_TIMEOUT = 20
 
-mytype="LOCAL"
+mytype = "LOCAL"
 address = "localhost"
 loadenv = False
-port    = "30024"
+port = "30024"
 
 class TimeoutHTTPConnection(httplib.HTTPConnection):
-
     def __init__(self,host,timeout=10):
-        httplib.HTTPConnection.__init__(self,host,timeout=timeout)
+        httplib.HTTPConnection.__init__(self, host, timeout = timeout)
         self.set_debuglevel(99)
-        #self.sock.settimeout(timeout)
 
 class TimeoutTransport(xmlrpclib.Transport):
-    def __init__(self, timeout=10, *l, **kw):
-        xmlrpclib.Transport.__init__(self,*l,**kw)
-        self.timeout=timeout
+    def __init__(self, timeout = 10, *l, **kw):
+        xmlrpclib.Transport.__init__(self, *l, **kw)
+        self.timeout = timeout
 
     def make_connection(self, host):
-        conn = TimeoutHTTPConnection(host,self.timeout)
+        conn = TimeoutHTTPConnection(host, self.timeout)
         return conn
 
 class TimeoutServerProxy(xmlrpclib.ServerProxy):
-    def __init__(self,uri,timeout=10,*l,**kw):
-        kw['transport']=TimeoutTransport(timeout=timeout, use_datetime=kw.get('use_datetime',0))
-        xmlrpclib.ServerProxy.__init__(self,uri,*l,**kw)
+    def __init__(self, uri, timeout = 10, *l, **kw):
+        kw['transport'] = TimeoutTransport(timeout = timeout, use_datetime = kw.get('use_datetime', 0))
+        xmlrpclib.ServerProxy.__init__(self, uri, *l, **kw)
 
-
-opts,args = getopt.getopt(sys.argv[1:],"e:t:a:lp:",["env=","type=","address=","loadenv","port="])
-for o,a in opts:
+opts, args = getopt.getopt(sys.argv[1:],"e:t:a:lp:",["env=", "type=", "address=", "loadenv", "port="])
+for o, a in opts:
     if o in ('-t', '--type'):
         mytype = a
-    elif o in ('-a' '--address'):
+    elif o in ('-a', '--address'):
         address = a
     elif o in ('-l', '--loadenv'):
         loadenv = True
     elif o in ('-p', '--port'):
-        port=a
+        port = a
 
 #get IP address
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); 
-s.settimeout(TIMEOUT)
+s.settimeout(REQUEST_TIMEOUT)
 s.connect(('google.com', 0)); 
 myip = s.getsockname()[0]
 
 try:
-    addr=reversename.from_address(myip)
-    myip = str(resolver.query(addr,"PTR")[0])[:-1]
-except Exception,e:
+    addr = reversename.from_address(myip)
+    myip = str(resolver.query(addr, "PTR")[0])[:-1]
+except Exception, e:
     pass
 
 #self register
 print "Preparing to register on " + address + ":" + port
-s = TimeoutServerProxy('http://' + address + ":" + port, timeout = TIMEOUT)
+s = TimeoutServerProxy('http://' + address + ":" + port, timeout = REQUEST_TIMEOUT)
 e_memtot = psutil.TOTAL_PHYMEM
 e_ncpu = psutil.NUM_CPUS
-myid,mycodeid = s.register(myip,mytype,e_ncpu,e_memtot/1024.0/1024.0)
+myid, mycodeid = s.register(myip, mytype, e_ncpu, e_memtot / 1024.0 ** 2)
 
 print "Registered with controller, got id: " + myid
+
+last_seen = time.time()
 
 cwd = os.getcwd()
 json_path = cwd + "/ipcontroller-engine.json"
 local_json_path = cwd + "/profile/security/ipcontroller-engine.json"
 from_json_path = cwd + "/../../ipcontroller-engine.json"
 
-def start_engine(mycodeid):
-    if (loadenv):
+def start_engine(mycodeid) :
+    if loadenv :
         print "Retrieving code file from " + mycodeid 
         code_path = cluster_storage.receive_file(mycodeid)
         
         cmd = "tar -xzf " + code_path
         args = shlex.split(cmd)
         r = Popen(args).wait()
-        if(r):
+        if (r):
             raise RuntimeError, "Code unpacking failed" 
         
         print "Retrieving json file from " + from_json_path + " to " + json_path
@@ -99,25 +99,28 @@ def start_engine(mycodeid):
     lengine = Popen(args)
     return lengine
 
-def stop_engine(lengine):
+def stop_engine(lengine) :
     if lengine.poll() is None :
-        lengine.terminate() 
+        lengine.terminate()
+        # It seems that terminate does not always work
+        time.sleep(10)
+        lengine.kill()
 
-def handler(signum,frame):
+def handler(signum, frame) :
     print "CATCH SYSTEM EXIT"
     sys.exit()
 
-signal.signal(signal.SIGTERM,handler)
+signal.signal(signal.SIGTERM, handler)
 
-lengine=None
+lengine = None
 
-DIE=1
-RESTART_ENGINE=2
+DIE = 1
+RESTART_ENGINE = 2
 
-try:
+try :
     lengine = start_engine(mycodeid)
     lengine_monitor = psutil.Process(lengine.pid)
-    while 1:
+    while True :
         if lengine.poll() is not None:
             del lengine
             s.unregister(myid)
@@ -127,30 +130,35 @@ try:
         e_mem = lengine_monitor.get_memory_percent()
         e_memphys, e_memvirt = lengine_monitor.get_memory_info()
 
-        cmd, param = s.poll(myid, e_cpu, e_mem * e_ncpu, e_memphys / 1024.0 / 1024.0, e_memvirt / 1024.0 / 1024.0)
-        print "POLL", cmd
+        try :
+            cmd, param = s.poll(myid, e_cpu, e_mem * e_ncpu, e_memphys / 1024.0 / 1024.0, e_memvirt / 1024.0 / 1024.0)
+            last_seen = time.time()
+            print "POLL", cmd
 
-        if cmd :
-            if (cmd == DIE) :
-                stop_engine(lengine)
-                del lengine
-                s.unregister(myid)
+            if cmd :
+                if (cmd == DIE) :
+                    stop_engine(lengine)
+                    del lengine
+                    s.unregister(myid)
+                    break
+                elif (cmd == RESTART_ENGINE) :
+                    stop_engine(lengine)
+                    del lengine
+                    lengine = start_engine(param)
+                    lengine_monitor = psutil.Process(lengine.pid)
+                    continue
+                else :
+                    print "UNKNOWN COMMAND RECEIVED, EXITING!"
+                    stop_engine(lengine)
+                    del lengine
+                    break
+        except (socket_error, httplib.HTTPException), serror :
+            if time.time() - last_seen > PING_TIMEOUT :
                 break
-            elif (cmd == RESTART_ENGINE) :
-                stop_engine(lengine)
-                del lengine
-                lengine = start_engine(param)
-                lengine_monitor = psutil.Process(lengine.pid)
-                continue
-            else :
-                print "UNKNOWN COMMAND RECEIVED, EXITING!"
-                stop_engine(lengine)
-                del lengine
-                break
-        time.sleep(120)
-except (Exception, KeyboardInterrupt, SystemExit):
-    if(not lengine is None):
+        time.sleep(80)
+except (Exception, KeyboardInterrupt, SystemExit) :
+    if (not lengine is None) :
         stop_engine(lengine)
+        del lengine
     s.unregister(myid)
     raise
-

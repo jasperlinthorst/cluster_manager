@@ -667,9 +667,10 @@ def stop_locals(gb,status,n):
             stop_engines = status.local_engines[:n]
             status.local_engines = status.local_engines[n:]
             for e in stop_engines:
-                if(e.poll() is None):
+                if (e.poll() is None) :
                     e.terminate()
-            
+            del stop_engines[:]
+
             time.sleep(3)
             set_status_message(gb,"Local engines stopped",GREEN)
             add_log_line(gb,str(n) + " local engines stopped",MAGENTA)
@@ -1103,7 +1104,7 @@ def thread_check_commands():
             Commands.lock.release()
         now = time.time()
         for eid,last_seen_time in active_engines.iteritems():
-            if now - last_seen_time > TIMEOUT:
+            if now - last_seen_time > TIMEOUT :
                 et = _unregister(eid)
                 add_log_line(gb,"Engine (" + et + ") with id " + eid + " timed out",RED)
         
