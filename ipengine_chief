@@ -11,8 +11,9 @@ import psutil
 import shutil
 from dns import resolver, reversename
 
+PING_INTERVAL = 120
 PING_TIMEOUT = 480
-REQUEST_TIMEOUT = 20
+REQUEST_TIMEOUT = 30
 
 mytype = "LOCAL"
 address = "localhost"
@@ -152,10 +153,10 @@ try :
                     stop_engine(lengine)
                     del lengine
                     break
-        except (socket_error, httplib.HTTPException), serror :
+        except (socket.error, httplib.HTTPException), serror :
             if time.time() - last_seen > PING_TIMEOUT :
                 break
-        time.sleep(80)
+        time.sleep(PING_INTERVAL)
 except (Exception, KeyboardInterrupt, SystemExit) :
     if (not lengine is None) :
         stop_engine(lengine)
