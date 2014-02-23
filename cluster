@@ -25,8 +25,8 @@ MAGENTA=4
 BLUE=5
 CYAN=6
 
-TIMEOUT=480
-PURGE_INTERVAL=1800
+TIMEOUT = 720
+PURGE_INTERVAL = 1800
 
 #current screen info
 class gb:
@@ -1249,7 +1249,7 @@ def main(scr, *args, **kwds):
     address = None
     iport   = "30023"
     port    = "30024"
-    hwm     = "10"
+    hwm     = "3"
     for o,a in opts:
         if o in ('-e', '--env'):
             envname = a
