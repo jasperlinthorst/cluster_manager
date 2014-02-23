@@ -1249,7 +1249,7 @@ def main(scr, *args, **kwds):
     address = None
     iport   = "30023"
     port    = "30024"
-    hwm     = "3"
+    hwm     = "2"
     for o,a in opts:
         if o in ('-e', '--env'):
             envname = a
