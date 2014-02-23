@@ -69,7 +69,7 @@ except Exception, e:
 
 #self register
 print "[i] Preparing to register on " + address + ":" + port
-s = TimeoutServerProxy('http://' + address + ":" + port, timeout = REQUEST_TIMEOUT)
+s = TimeoutServerProxy('http://' + address + ":" + port, timeout = REQUEST_TIMEOUT, allow_none = True)
 
 myid, mycodeid = None, None
 attempt = REGISTRATION_ATTEMPTS
