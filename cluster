@@ -249,8 +249,8 @@ def thread_display_status(gb,status):
                 
                 if (status.queue_status) :
                     descr = "Failed: " + str(get_queue_status(status.queue_status, "failed"))
-                    descr += "  Pending: " + str(get_queue_status(status.queue_status, "unassigned"))
-                    descr += "  Scheduled: " + str(get_queue_status(status.queue_status, "queue"))
+                    descr += "  Pending: " + str(get_queue_status(status.queue_status, "tasks"))
+                    descr += "  Scheduled: " + str(get_queue_status(status.queue_status, "queue") + get_queue_status(status.queue_status, "unassigned"))
                     descr += "  Ready: " + str(get_queue_status(status.queue_status, "completed"))
                     gb.wcom_status.addstr(9, 1, "Queue:")
                     gb.wcom_status.addstr(9, 18, descr)
