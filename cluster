@@ -112,6 +112,7 @@ def process_queue(status, ids) :
                 failed += node.get('failed', 0)
                 pending += node.get('tasks', 0)
                 scheduled += node.get('unassigned', 0)
+                scheduled += node.get('queue', 0)
                 ready += node.get('completed', 0)
     return (failed, pending, scheduled, ready)
 
@@ -1122,6 +1123,7 @@ def thread_purge() :
                 add_log_line(gb, 'Purged results (%s).' % str_now, CYAN)
         finally :
             pass
+        
         if should_restart :
             str_now = datetime.datetime.now().strftime("%B %d %Y %I:%M%p")
             add_log_line(gb, "Waiting for semaphore (%s)..." % str_now, YELLOW)
