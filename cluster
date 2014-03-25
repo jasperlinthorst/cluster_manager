@@ -8,6 +8,7 @@ import threading
 import cluster_storage
 from collections import defaultdict
 
+import sysv_ipc
 import socket
 from dns import resolver,reversename
 from SimpleXMLRPCServer import SimpleXMLRPCServer
@@ -15,6 +16,7 @@ import random
 import psutil
 import shutil
 import numpy
+import datetime
 from IPython.parallel import Client
 
 WHITE=0
@@ -27,6 +29,16 @@ CYAN=6
 
 TIMEOUT = 720
 PURGE_INTERVAL = 1800
+
+_SEMAPHORE_KEY = 691989
+_SEMAPHORE_VALUE = 100
+
+def initialize_semaphore() :
+    try :   
+        sem = sysv_ipc.Semaphore(_SEMAPHORE_KEY, flags = sysv_ipc.IPC_CREX, initial_value = _SEMAPHORE_VALUE) 
+    except :
+        sem = sysv_ipc.Semaphore(_SEMAPHORE_KEY) 
+    return sem
 
 #current screen info
 class gb:
@@ -50,10 +62,12 @@ class status:
     iport = None
 
     lock = None
+    semaphore = initialize_semaphore()
     controller = False
     controller_monitor = None
     taskclient = None
     queue_status = defaultdict(int)
+    queue_ids = None
     controller_cpu = 0.0
     controller_mem = 0.0
     
@@ -71,17 +85,35 @@ class status:
     engine_type_count = defaultdict(int)
     engine_type_stats = dict()
 
+    should_restart = False
+
     last_purge = -1
 NOSTAT = (0.0, 0.0, 0.0, 0.0, 0.0)
 
-def get_queue_status(status, type) :
-    acc = 0
+def process_queue(status, ids) :
+    failed, pending, scheduled, ready = 0, 0, 0, 0
     for key, value in status.items() :
-        if key == type :
-            acc += value
+        if key == 'failed' :
+            failed += value
+        elif key == 'tasks' :
+            pending += value
+        elif key == 'queue' :
+            scheduled += value
+        elif key == 'unassigned' :
+            scheduled += value
+        elif key == 'completed' :
+            ready += value
         elif isinstance(key, int) :
-            acc += value.get(type, 0)
-    return acc
+            node_id = key
+            node = value
+            if not node_id in ids :
+                failed += node.get('failed', 0) + node.get('tasks', 0) + node.get('queue', 0) + node.get('unassigned', 0) + node.get('completed', 0)
+            else :
+                failed += node.get('failed', 0)
+                pending += node.get('tasks', 0)
+                scheduled += node.get('unassigned', 0)
+                ready += node.get('completed', 0)
+    return (failed, pending, scheduled, ready)
 
 #create a bordered window
 def border_win(parent,height,width,x,y,**kwargs):
@@ -174,6 +206,8 @@ def thread_display_status(gb,status):
                         color = YELLOW
                     else:
                         color = GREEN
+                    if mem >= 4096.0 :
+                        status.should_restart = True
                     gb.wcom_status.addstr(1,18,"ONLINE", curses.color_pair(color))
                     gb.wcom_status.addstr(1,52,"(" +  '{:.2%}'.format(r) + " CPU, " + '%.2f' % mem + "MB MEM)",curses.color_pair(color))
                 else:
@@ -248,10 +282,11 @@ def thread_display_status(gb,status):
                
                 
                 if (status.queue_status) :
-                    descr = "Failed: " + str(get_queue_status(status.queue_status, "failed"))
-                    descr += "  Pending: " + str(get_queue_status(status.queue_status, "tasks"))
-                    descr += "  Scheduled: " + str(get_queue_status(status.queue_status, "queue") + get_queue_status(status.queue_status, "unassigned"))
-                    descr += "  Ready: " + str(get_queue_status(status.queue_status, "completed"))
+                    failed, pending, scheduled, ready = process_queue(status.queue_status, status.queue_ids)
+                    descr = "Failed: " + str(failed)
+                    descr += "  Pending: " + str(pending)
+                    descr += "  Scheduled: " + str(scheduled)
+                    descr += "  Ready: " + str(ready)
                     gb.wcom_status.addstr(9, 1, "Queue:")
                     gb.wcom_status.addstr(9, 18, descr)
                 
@@ -358,14 +393,15 @@ def build_windows(gb):
         gb.lock.release()    
 
 #add line to log windows
-def add_log_line(gb,line,color=0):
+def add_log_line(gb, line, color=0):
     gb.lock.acquire()
     try:
-        if(line and line[-1] == '\n'):
+        if (line and line[-1] == '\n'):
             gb.log_file.write(line)
-        else:
+        else :
             gb.log_file.write(line + '\n')
-        if(gb.wlog):
+        gb.log_file.flush()
+        if (gb.wlog):
             try:
                 line = str(line.decode('ascii'))
             except UnicodeDecodeError:
@@ -512,6 +548,7 @@ def start_controller(gb,status):
         pc = Popen(args, stdout = subprocess.PIPE, stderr = subprocess.PIPE)
         status.controller = pc
         status.controller_monitor = psutil.Process(pc.pid)
+        status.should_restart = False
     finally:
         status.lock.release()
     log_output(pc.stdout, gb, WHITE, ['distributing Tasks', 'Getting task result', 'Queuing task', 'sync properties', 'Clearing', 'Cleared'])
@@ -558,6 +595,7 @@ def restart_controller(gb, status):
             status.controller = None
             status.controller_monitor = None
             status.controller_cpu, status.controller_mem = 0.0, 0.0
+            status.should_restart = False
     finally :
         status.lock.release()
     
@@ -619,8 +657,9 @@ def stop_controller(gb,status):
             status.controller.terminate()
             status.controller = None
             status.controller_monitor = None
-	    status.controller_cpu, status.controller_mem = 0.0, 0.0
+            status.controller_cpu, status.controller_mem = 0.0, 0.0
             time.sleep(2) #finishes log output, lets threads terminate
+        status.should_restart = False
     finally:
         status.lock.release()
     set_status_message(gb, "Controller offline..", YELLOW)
@@ -1023,13 +1062,13 @@ def reload() :
     
 def report_restart() :
     status.lock.acquire()
-    result = True
+    result = 'OK'
     try :
-        add_log_line(gb, 'Client reported for restart (%.2fMB used)' % status.controller_mem, CYAN)
-        if controller_online(status) and status.controller_mem >= 4096.0 :
-    	    restart_controller(gb, status)
+        add_log_line(gb, 'Controller status requested (%.2fMB used)' % status.controller_mem, CYAN)
+        if controller_online(status) and status.should_restart :
+    	    result = 'WAIT'
         else :
-            result = False
+            result = 'OK'
     finally :
         status.lock.release()
     return result
@@ -1050,8 +1089,6 @@ def _unregister(myid):
         Commands.lock.release()
     return et
    
-
-
 def thread_start_server(port):
     Commands.lock = threading.RLock()
     server = SimpleXMLRPCServer(("", int(port)), logRequests = False)
@@ -1066,28 +1103,46 @@ def thread_start_server(port):
 def thread_purge() :
     while True :
         status.lock.acquire()
-	client = None
-	now = time.time()
-	last_purge = None
-        try:
-             if (status.taskclient):
-		  status.last_purge = now
-		  last_purge = status.last_purge
-		  client = status.taskclient
-        finally:
+        client = None
+        now = time.time()
+        last_purge = None
+        should_restart = status.should_restart
+        try :
+             if (status.taskclient) :
+                 status.last_purge = now
+                 last_purge = status.last_purge
+                 client = status.taskclient
+        finally :
              status.lock.release()
-	
-	try :
-    	     if client and now - last_purge > PURGE_INTERVAL :
-	          client.purge_local_results('all')
-	finally :
-	     pass
+
+        try :
+            if client and now - last_purge > PURGE_INTERVAL :
+                client.purge_everything()
+                str_now = datetime.datetime.now().strftime("%B %d %Y %I:%M%p")
+                add_log_line(gb, 'Purged results (%s).' % str_now, CYAN)
+        finally :
+            pass
+        if should_restart :
+            str_now = datetime.datetime.now().strftime("%B %d %Y %I:%M%p")
+            add_log_line(gb, "Waiting for semaphore (%s)..." % str_now, YELLOW)
+            status.semaphore.acquire(delta = _SEMAPHORE_VALUE)
+            status.lock.acquire()
+            try :
+                if (status.taskclient) :
+                    status.queue_status = status.taskclient.queue_status()
+                    status.queue_ids = numpy.copy(status.taskclient.ids)
+                    failed, pending, scheduled, ready = process_queue(status.queue_status, status.queue_ids)
+                    if pending == 0 and scheduled == 0 :
+                        restart_controller(gb, status)
+            finally :
+                status.lock.release()
+                status.semaphore.release(delta = _SEMAPHORE_VALUE)
         time.sleep(5)
 
 def thread_check_commands():
-    while 1:
+    while True :
         Commands.lock.acquire()
-        try:
+        try :
             active_engines = Commands.active_engines.copy()
             engine_types = Commands.engine_types.copy()
             engine_stats = Commands.engine_stats.copy()
@@ -1100,7 +1155,8 @@ def thread_check_commands():
                     add_log_line(gb,Commands.command_message,GREEN)
                     set_status_message(gb,"Command complete",GREEN)
                     stop_progress_bar(gb)
-        finally:
+        
+        finally :
             Commands.lock.release()
         now = time.time()
         for eid,last_seen_time in active_engines.iteritems():
@@ -1132,15 +1188,16 @@ def thread_check_commands():
 
             engine_type_stats[type] = (cpu_mean,memp_mean,memp_max,mem_mean,mem_max)
     	status.lock.acquire()
-    	try:
+    	try :
              status.engine_type_count = engine_type_count
              status.engine_type_stats = engine_type_stats
-             if (status.controller_monitor):
+             if (status.controller_monitor) :
                   status.controller_cpu = status.controller_monitor.get_cpu_percent()
-    		  used_r, used_v = status.controller_monitor.get_memory_info()
-		  status.controller_mem = used_r / 1024.0 ** 2
-             if (status.taskclient):
+                  used_r, used_v = status.controller_monitor.get_memory_info()
+                  status.controller_mem = used_r / 1024.0 ** 2
+             if (status.taskclient) :
                   status.queue_status = status.taskclient.queue_status()
+                  status.queue_ids = numpy.copy(status.taskclient.ids)
         finally:
              status.lock.release()
 
@@ -1148,14 +1205,14 @@ def thread_check_commands():
 
 
 def start_server(port):
-    t = threading.Thread(target=thread_start_server,args=(port,))
-    t.daemon=True
+    t = threading.Thread(target = thread_start_server, args=(port,))
+    t.daemon = True
     t.start()
-    t = threading.Thread(target=thread_check_commands)
-    t.daemon=True
+    t = threading.Thread(target = thread_check_commands)
+    t.daemon = True
     t.start()
-    t = threading.Thread(target=thread_purge)
-    t.daemon=True
+    t = threading.Thread(target = thread_purge)
+    t.daemon = True
     t.start()
 
 
@@ -1249,7 +1306,7 @@ def main(scr, *args, **kwds):
     address = None
     iport   = "30023"
     port    = "30024"
-    hwm     = "1"
+    hwm     = "2"
     for o,a in opts:
         if o in ('-e', '--env'):
             envname = a
@@ -1267,7 +1324,7 @@ def main(scr, *args, **kwds):
 
     init_status(status,envname,address,port,iport,hwm)
     gb.scr = scr
-    gb.log_file = open('cluster.log','w')
+    gb.log_file = open('cluster.log','wb')
 
     build_windows(gb)
     t = start_status_display(gb,status)
@@ -1288,7 +1345,7 @@ def main(scr, *args, **kwds):
                 build_windows(gb)
             elif c == ord('q'):  #QUIT
                 ans = enter_command(gb, "Are you sure? (yes/no): ")
-		if ans == 'yes' :
+                if ans == 'yes' :
                     stop_controller(gb,status)
                     stop_status_display(status,t)
                     gb.scr.refresh()
@@ -1296,12 +1353,12 @@ def main(scr, *args, **kwds):
                 
             elif c == ord('w'): #RELOAD ENGINES
                 ans = enter_command(gb, "Are you sure? (yes/no): ")
-		if ans == 'yes' :
+                if ans == 'yes' :
                     reload_engines(gb,status)
 
             elif c == ord('e'): #RESTART ENGINES
                 ans = enter_command(gb, "Are you sure? (yes/no): ")
-		if ans == 'yes' :
+                if ans == 'yes' :
                     restart_engines(gb,status)
             
             elif c == ord('a'): #START CONTROLLER
@@ -1318,9 +1375,9 @@ def main(scr, *args, **kwds):
                 else:
                     set_status_message(gb, "Controller not started", YELLOW)
             
-	    elif c == ord('z'):  #STOP CONTROLLER
+            elif c == ord('z'):  #STOP CONTROLLER
                 ans = enter_command(gb, "Are you sure? (yes/no): ")
-		if ans == 'yes' :
+                if ans == 'yes' :
                     stop_controller(gb,status)
 
             elif c == ord('s'):  #START local engines
@@ -1353,7 +1410,7 @@ def main(scr, *args, **kwds):
                 cmd = get_number(gb, "Number of engines (def=all): ",sum(status.grid_engines_count))
                 if(not cmd is None):
                     stop_grid(gb,status,cmd)
-	    elif c == ord('u') :  # Update ncurses screen
+            elif c == ord('u') :  # Update ncurses screen
                 gb.scr.refresh()
     except Exception:
         add_log_line(gb,"EXCEPTION!!! EMERGENCY SHUTDOWN IN PROGRESS!",RED)
@@ -1366,6 +1423,9 @@ def main(scr, *args, **kwds):
         except Exception:
             pass
         raise
-        
+    try :
+        gb.log_file.close()
+    except :
+        pass
     time.sleep(2) #wait for all paint ops to finish
 curses.wrapper(main)
