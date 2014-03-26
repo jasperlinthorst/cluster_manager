@@ -483,7 +483,8 @@ def init_commands(gb):
             gb.wcom.addstr(5,1,"Reload all engines: w")
             gb.wcom.addstr(6,1,"Restart all engines: e")
             gb.wcom.addstr(7,1,"Restart controller: y")
-            gb.wcom.addstr(9,1,"Shutdown: q")
+            gb.wcom.addstr(8,1,"Restart client: p")
+            gb.wcom.addstr(10,1,"Shutdown: q")
             gb.wcom.refresh()
     except Exception, e:
         pass
@@ -583,6 +584,36 @@ def start_controller(gb,status):
         set_status_message(gb,"Controller online",GREEN)
         add_log_line(gb,"Controller brought online",MAGENTA)
 
+def restart_client(gb, status) :
+    set_status_message(gb, "Restarting client...", YELLOW)
+    cwd = os.getcwd()
+    client_json_path = "./profile/security/ipcontroller-client.json"
+    status.lock.acquire()
+    try :
+        status.taskclient = None
+        retry = 3
+        set_status_message(gb, "Starting controller client...", YELLOW)
+        time.sleep(5)
+        while (retry):
+            try :
+                status.taskclient = Client(client_json_path)
+                break
+            except Exception, e:
+                retry -=1
+                if (retry == 0):
+                    break
+                else :
+                    time.sleep(15)
+        stop_progress_bar(gb)
+        if (retry > 0) :
+            set_status_message(gb, "Client online", GREEN)
+            add_log_line(gb, "Client brought online", MAGENTA)
+        else :
+            set_status_message(gb, "Client offline", RED)
+            add_log_line(gb, "Could not attach client", MAGENTA)
+    finally :
+        status.lock.release()
+
 #start ipython cluster controller
 def restart_controller(gb, status):
     set_status_message(gb, "Restarting controller...", YELLOW)
@@ -638,12 +669,16 @@ def restart_controller(gb, status):
             except Exception, e:
                 retry -=1
                 if (retry == 0):
-                    raise e
+                    break
                 else:
                     time.sleep(15)
         stop_progress_bar(gb)
-        set_status_message(gb, "Controller online", GREEN)
-        add_log_line(gb, "Controller brought online", MAGENTA)
+        if (retry > 0) :
+            set_status_message(gb, "Controller online", GREEN)
+            add_log_line(gb, "Controller brought online", MAGENTA)
+        else :
+            set_status_message(gb, "Controller online", RED)
+            add_log_line(gb, "Controller brought online, but client is offline", MAGENTA)
 
 #stop ipython cluster controller
 def stop_controller(gb,status):
@@ -1142,6 +1177,8 @@ def thread_purge() :
                     failed, pending, scheduled, ready = process_queue(status.queue_status, status.queue_ids)
                     if pending == 0 and scheduled == 0 :
                         restart_controller(gb, status)
+            except :
+                pass
             finally :
                 status.lock.release()
                 status.semaphore.release(delta = _SEMAPHORE_VALUE)
@@ -1382,6 +1419,14 @@ def main(scr, *args, **kwds):
                     ans = enter_command(gb, "Are you sure? (yes/no): ")
                     if ans == 'yes' :
                         restart_controller(gb,status)
+                else:
+                    set_status_message(gb, "Controller not started", YELLOW)
+            
+            elif c == ord('p'): #RESTART CLIENT
+                if (controller_online(status)) :
+                    ans = enter_command(gb, "Are you sure? (yes/no): ")
+                    if ans == 'yes' :
+                        restart_client(gb,status)
                 else:
                     set_status_message(gb, "Controller not started", YELLOW)
             
