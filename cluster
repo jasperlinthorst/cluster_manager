@@ -598,6 +598,7 @@ def restart_client(gb, status) :
     status.lock.acquire()
     try :
         status.taskclient = None
+        add_log_line(gb, "Client offline", MAGENTA)
         retry = 3
         set_status_message(gb, "Starting controller client...", YELLOW)
         time.sleep(5)
