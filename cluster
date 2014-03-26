@@ -1444,12 +1444,9 @@ def main(scr, *args, **kwds):
                     set_status_message(gb, "Controller not started", YELLOW)
             
             elif c == ord('p'): #RESTART CLIENT
-                if (controller_online(status)) :
-                    ans = enter_command(gb, "Are you sure? (yes/no): ")
-                    if ans == 'yes' :
-                        restart_client(gb,status)
-                else:
-                    set_status_message(gb, "Controller not started", YELLOW)
+                ans = enter_command(gb, "Are you sure? (yes/no): ")
+                if ans == 'yes' :
+                    restart_client(gb, status)
             
             elif c == ord('z'):  #STOP CONTROLLER
                 ans = enter_command(gb, "Are you sure? (yes/no): ")
