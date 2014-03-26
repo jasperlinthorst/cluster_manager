@@ -573,19 +573,23 @@ def start_controller(gb,status):
         retry = 3
         set_status_message(gb,"Starting controller client...",YELLOW)
         time.sleep(5)
-        while(retry):
-            try:
+        while retry > 0 :
+            try :
                 status.taskclient = Client(client_json_path)
-                retry = 0
-            except Exception, e:
-                retry -=1
-                if(retry == 0):
-                    raise e
-                else:
+                break
+            except Exception, e :
+                retry -= 1
+                if retry == 0 :
+                    break
+                else :
                     time.sleep(15)
         stop_progress_bar(gb)
-        set_status_message(gb,"Controller online",GREEN)
-        add_log_line(gb,"Controller brought online",MAGENTA)
+        if retry > 0 :
+            set_status_message(gb, "Controller online", GREEN)
+            add_log_line(gb, "Controller brought online", MAGENTA)
+        else :
+            set_status_message(gb, "Controller online (client offline)", RED)
+            add_log_line(gb, "Controller brought online, but client is offline", MAGENTA)
 
 def restart_client(gb, status) :
     set_status_message(gb, "Restarting client...", YELLOW)
@@ -608,11 +612,11 @@ def restart_client(gb, status) :
                 else :
                     time.sleep(15)
         stop_progress_bar(gb)
-        if (retry > 0) :
-            set_status_message(gb, "Client online", GREEN)
+        if retry > 0 :
+            set_status_message(gb, "Controller online", GREEN)
             add_log_line(gb, "Client brought online", MAGENTA)
         else :
-            set_status_message(gb, "Client offline", RED)
+            set_status_message(gb, "Controller online (client offline)", RED)
             add_log_line(gb, "Could not attach client", MAGENTA)
     finally :
         status.lock.release()
@@ -676,11 +680,11 @@ def restart_controller(gb, status):
                 else:
                     time.sleep(15)
         stop_progress_bar(gb)
-        if (retry > 0) :
+        if retry > 0 :
             set_status_message(gb, "Controller online", GREEN)
             add_log_line(gb, "Controller brought online", MAGENTA)
         else :
-            set_status_message(gb, "Controller online", RED)
+            set_status_message(gb, "Controller online (client offline)", RED)
             add_log_line(gb, "Controller brought online, but client is offline", MAGENTA)
 
 #stop ipython cluster controller
