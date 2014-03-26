@@ -1185,6 +1185,7 @@ def thread_purge() :
             status.semaphore.acquire(delta = _SEMAPHORE_VALUE)
             while status.semaphore.value < 0 :
                 time.sleep(10)
+            time.sleep(60)
             status.lock.acquire()
             try :
                 if (status.taskclient) :
