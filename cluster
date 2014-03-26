@@ -1118,7 +1118,7 @@ def thread_purge() :
 
         try :
             if client and now - last_purge > PURGE_INTERVAL :
-                client.purge_client_results()
+                client.purge_local_results('all')
                 str_now = datetime.datetime.now().strftime("%B %d %Y %I:%M%p")
                 add_log_line(gb, 'Purged results (%s).' % str_now, CYAN)
         finally :
