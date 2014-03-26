@@ -1118,7 +1118,7 @@ def thread_purge() :
 
         try :
             if client and now - last_purge > PURGE_INTERVAL :
-                client.purge_everything()
+                client.purge_client_results()
                 str_now = datetime.datetime.now().strftime("%B %d %Y %I:%M%p")
                 add_log_line(gb, 'Purged results (%s).' % str_now, CYAN)
         finally :
@@ -1202,6 +1202,8 @@ def thread_check_commands():
              if (status.taskclient) :
                   status.queue_status = status.taskclient.queue_status()
                   status.queue_ids = numpy.copy(status.taskclient.ids)
+        except :
+            pass
         finally:
              status.lock.release()
 
