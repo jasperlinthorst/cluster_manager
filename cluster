@@ -60,6 +60,7 @@ class status:
     address = None
     port = None
     iport = None
+    recover = False
 
     lock = None
     semaphore = initialize_semaphore()
@@ -549,6 +550,8 @@ def start_controller(gb,status):
         engine_json_path = "./profile/security/ipcontroller-engine.json"
         client_json_path = "./profile/security/ipcontroller-client.json"
         cmd = "ipcontroller --HubFactory.iopub=%d,%d" % (int(status.iport) - 4, int(status.iport) + 7) +" --HubFactory.task=%d,%d" % (int(status.iport) - 3, int(status.iport) + 6) + " --HubFactory.mux=%d,%d" % (int(status.iport) - 2, int(status.iport) + 5) + " --HubFactory.control=%d,%d" % (int(status.iport) - 1, int(status.iport) + 4) + " --HubFactory.hb=%d,%d" % (int(status.iport) + 2, int(status.iport) + 3) + " --port=" + str(status.iport) + " --nodb --quiet --location=" + status.address + " --hwm=" + str(status.hwm) + " --usethreads" + " --ip=*" + " --ProfileDir.location=" + cwd + "/profile/"
+        if status.recover :
+            cmd = "ipcontroller --HubFactory.iopub=%d,%d" % (int(status.iport) - 4, int(status.iport) + 7) + " --HubFactory.task=%d,%d" % (int(status.iport) - 3, int(status.iport) + 6) + " --HubFactory.mux=%d,%d" % (int(status.iport) - 2, int(status.iport) + 5) + " --HubFactory.control=%d,%d" % (int(status.iport) - 1, int(status.iport) + 4) + " --HubFactory.hb=%d,%d" % (int(status.iport) + 2, int(status.iport) + 3) + " --port=" + str(status.iport) + " --reuse --restore --quiet --nodb --location=" + status.address + " --hwm=" + str(status.hwm) + " --usethreads" + " --ip=*" + " --ProfileDir.location=" + cwd + "/profile/"
         add_log_line(gb,"Executing: " + cmd, GREEN)
         args = shlex.split(cmd)
         pc = Popen(args, stdout = subprocess.PIPE, stderr = subprocess.PIPE)
@@ -594,13 +597,13 @@ def restart_client(gb, status) :
         retry = 3
         set_status_message(gb, "Starting controller client...", YELLOW)
         time.sleep(5)
-        while (retry):
+        while retry > 0 :
             try :
                 status.taskclient = Client(client_json_path)
                 break
-            except Exception, e:
+            except Exception, e :
                 retry -=1
-                if (retry == 0):
+                if retry == 0 :
                     break
                 else :
                     time.sleep(15)
@@ -662,13 +665,13 @@ def restart_controller(gb, status):
         retry = 3
         set_status_message(gb, "Starting controller client...", YELLOW)
         time.sleep(5)
-        while (retry):
+        while retry > 0 :
             try:
                 status.taskclient = Client(client_json_path)
-                retry = 0
-            except Exception, e:
+                break
+            except Exception, e :
                 retry -=1
-                if (retry == 0):
+                if retry == 0 :
                     break
                 else:
                     time.sleep(15)
@@ -996,13 +999,14 @@ def restart_engines(gb,status):
     add_log_line(gb,"All cluster engines restarted",MAGENTA)
 
 
-def init_status(status,envname,address,port,iport,hwm):
+def init_status(status,envname,address,port,iport,hwm, recover):
     status.lock = threading.RLock()
     status.envname = envname
     status.address = address
     status.port = port
     status.iport = iport
     status.hwm = hwm
+    status.recover = recover
 
 
 
@@ -1059,7 +1063,7 @@ def register(myip,engine_type,cores,totmem):
         Commands.engine_types[myid] = engine_type
         Commands.engine_stats[myid] = (0.0,0.0,0.0,0.0)
         Commands.pending_command[myid] = NOOP
-        add_log_line(gb,"Engine (" + engine_type + ", " + str(cores) + "C:" + "{:1.1f}".format((totmem / 1024.0 / float(cores))) + " GB) on " + myip + " registered as: " + myid,CYAN)
+        add_log_line(gb, "Engine (" + engine_type + ", " + str(cores) + "C:" + "{:1.1f}".format((totmem / 1024.0 / float(cores))) + " GB) on " + myip + " registered as: " + myid, CYAN)
     finally:
         Commands.lock.release()
     if(engine_type == "GRID"):
@@ -1078,14 +1082,21 @@ def poll(myid,cpu_usage,mem_usage,memphys,memvirt):
         cmd = Commands.pending_command[myid]
         param = status.codeid
         Commands.active_engines[myid] = time.time()
-        Commands.engine_stats[myid] = (cpu_usage,mem_usage,memphys,memvirt)
+        Commands.engine_stats[myid] = (cpu_usage, mem_usage, memphys, memvirt)
         if(cmd): 
             Commands.pending_command[myid] = NOOP
             Commands.command_counter += 1
     except KeyError:
-        add_log_line(gb,"Poll for unknown engine id: " + myid,RED)
-        cmd = DIE
-        param = None
+        if not status.recover :
+            add_log_line(gb, "Poll for unknown engine (%s) - dropping" % myid, RED)
+            cmd, param = DIE, None
+        else :
+            add_log_line(gb, "Poll for unknown engine (%s) - recovering" % myid, YELLOW)
+            Commands.active_engines[myid] = time.time()
+            Commands.engine_types[myid] = engine_type
+            Commands.engine_stats[myid] = (cpu_usage, mem_usage, memphys, memvirt)
+            Commands.pending_command[myid] = NOOP
+            cmd, param = NOOP, status.codeid
     finally:
         Commands.lock.release()
     return cmd, param
@@ -1181,6 +1192,7 @@ def thread_purge() :
                 pass
             finally :
                 status.lock.release()
+                time.sleep(15)
                 status.semaphore.release(delta = _SEMAPHORE_VALUE)
         time.sleep(5)
 
@@ -1347,13 +1359,14 @@ def get_hostname():
 
 
 def main(scr, *args, **kwds):
-    opts,args = getopt.getopt(sys.argv[1:],"e:a:p:i:",["env=","address=","port=","iport="])
+    opts,args = getopt.getopt(sys.argv[1:],"e:a:p:i:",["env=", "address=", "port=", "iport=", "hwm=", "recover"])
 
     envname = "grid:/ipengine.dist"
     address = None
     iport   = "30023"
     port    = "30024"
     hwm     = "2"
+    recover = False
     for o,a in opts:
         if o in ('-e', '--env'):
             envname = a
@@ -1365,11 +1378,13 @@ def main(scr, *args, **kwds):
             iport = a
         elif o in ('--hwm', ):
             hwm = a
+        elif o in ('--recover', ):
+            recover = True
     
     if address is None:
         address = get_hostname()
 
-    init_status(status,envname,address,port,iport,hwm)
+    init_status(status, envname, address, port, iport, hwm, recover)
     gb.scr = scr
     gb.log_file = open('cluster.log','wb')
 
