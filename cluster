@@ -1128,6 +1128,8 @@ def thread_purge() :
             str_now = datetime.datetime.now().strftime("%B %d %Y %I:%M%p")
             add_log_line(gb, "Waiting for semaphore (%s)..." % str_now, YELLOW)
             status.semaphore.acquire(delta = _SEMAPHORE_VALUE)
+            while status.semaphore.value < 0 :
+                time.sleep(10)
             status.lock.acquire()
             try :
                 if (status.taskclient) :
