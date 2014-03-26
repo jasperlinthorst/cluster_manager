@@ -395,6 +395,10 @@ def build_windows(gb):
 
 #add line to log windows
 def add_log_line(gb, line, color=0):
+    str_now = datetime.datetime.now().strftime("%B %d %Y %I:%M%p")
+    prefix = '[%s] ' % str_now
+    line = prefix + line
+
     gb.lock.acquire()
     try:
         if (line and line[-1] == '\n'):
