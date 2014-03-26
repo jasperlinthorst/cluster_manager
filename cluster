@@ -582,7 +582,7 @@ def start_controller(gb,status):
                 if retry == 0 :
                     break
                 else :
-                    time.sleep(15)
+                    time.sleep(5)
         stop_progress_bar(gb)
         if retry > 0 :
             set_status_message(gb, "Controller online", GREEN)
@@ -611,14 +611,14 @@ def restart_client(gb, status) :
                 if retry == 0 :
                     break
                 else :
-                    time.sleep(15)
+                    time.sleep(5)
         stop_progress_bar(gb)
         if retry > 0 :
-            set_status_message(gb, "Controller online", GREEN)
-            add_log_line(gb, "Client brought online", MAGENTA)
+            set_status_message(gb, "Client online", GREEN)
+            add_log_line(gb, "Client brought online", GREEN)
         else :
-            set_status_message(gb, "Controller online (client offline)", RED)
-            add_log_line(gb, "Could not attach client", MAGENTA)
+            set_status_message(gb, "Client offline", RED)
+            add_log_line(gb, "Could not attach client", RED)
     finally :
         status.lock.release()
 
@@ -679,7 +679,7 @@ def restart_controller(gb, status):
                 if retry == 0 :
                     break
                 else:
-                    time.sleep(15)
+                    time.sleep(5)
         stop_progress_bar(gb)
         if retry > 0 :
             set_status_message(gb, "Controller online", GREEN)
