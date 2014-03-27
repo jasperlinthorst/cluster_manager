@@ -6,13 +6,14 @@ ADDRESS=$2
 PORT=$3
 PARAMNR=$4
 ENVNAME=`basename $ENVPATH`
+RANDOM=$PARAMNR
 
 export LFC_HOME=XXLFCHOMEXX
 export LFC_HOST=lfc.grid.sara.nl
 
 #Wait a random time to not overload the server after submission of a number of jobs.
-echo "Waiting..."
 WAIT=$[ ($RANDOM % 180) ]
+echo "Waiting for $WAIT seconds..."
 sleep $WAIT
 echo "Waiting period over for $PARAMNR, starting bootstrap."
 
