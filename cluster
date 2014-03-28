@@ -109,6 +109,7 @@ def process_queue(status, ids) :
             node = value
             if not node_id in ids :
                 failed += node.get('failed', 0) + node.get('tasks', 0) + node.get('queue', 0) + node.get('unassigned', 0)
+                ready += node.get('completed', 0)
             else :
                 failed += node.get('failed', 0)
                 pending += node.get('tasks', 0)
