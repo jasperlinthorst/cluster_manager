@@ -1161,7 +1161,7 @@ def _unregister(myid):
         Commands.lock.release()
     return et
    
-def thread_start_server(port):
+def thread_start_server(port) :
     Commands.lock = threading.RLock()
     server = SimpleXMLRPCServer(("", int(port)), logRequests = False)
     server.register_function(register)
@@ -1170,7 +1170,10 @@ def thread_start_server(port):
     server.register_function(reload)
     server.register_function(report_restart)
     Commands.server = server
-    server.serve_forever()
+    try :
+        server.serve_forever()
+    except :
+        add_log_line(gb, 'RPC Server caught an exception.', RED)
 
 def thread_purge() :
     while True :
