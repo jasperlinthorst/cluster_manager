@@ -598,6 +598,8 @@ def restart_client(gb, status) :
     client_json_path = "./profile/security/ipcontroller-client.json"
     status.lock.acquire()
     try :
+        if status.taskclient is not None :
+            status.taskclient.close()
         status.taskclient = None
         add_log_line(gb, "Client offline", MAGENTA)
         retry = 3
@@ -632,6 +634,8 @@ def restart_controller(gb, status):
     client_json_path = "./profile/security/ipcontroller-client.json"
     status.lock.acquire()
     try :
+        if status.taskclient is not None :
+            status.taskclient.close()
         status.taskclient = None
         if controller_online(status) :
             shutil.move(client_json_path, client_json_path + '.bak')
@@ -699,7 +703,9 @@ def stop_controller(gb,status):
             stop_pbs(gb,status,len(status.pbs_engines))
         if(status.grid_engines):
             stop_grid(gb,status,sum(status.grid_engines_count))
-        
+       
+        if status.taskclient is not None :
+            status.taskclient.close()
         status.taskclient = None
         set_status_message(gb,"Waiting for controller to terminate..", YELLOW)
         if (controller_online(status)) :
