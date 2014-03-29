@@ -19,6 +19,21 @@ import numpy
 import datetime
 from IPython.parallel import Client
 
+import cherrypy
+import dowser
+
+def start_web() :
+    try :
+        port = 30031
+        cherrypy.tree.mount(dowser.Root())
+        cherrypy.config.update({
+            'environment': 'embedded',
+            'server.socket_port': port
+        })
+        cherrypy.engine.start()
+    except :
+        pass
+
 WHITE=0
 RED=1
 GREEN=2
@@ -1280,7 +1295,10 @@ def start_server(port):
     t = threading.Thread(target = thread_purge)
     t.daemon = True
     t.start()
-
+    
+    t = threading.Thread(target = start_web)
+    t.daemon = True
+    t.start()
 
 def thread_grid_monitor(status):
     while 1:
@@ -1399,8 +1417,7 @@ def main(scr, *args, **kwds):
     t = start_status_display(gb,status)
     start_server(port)
     start_grid_monitor(status)
-   
-
+  
     #workaround for bug in curses: no resize messages
     os.environ['LINES']="blah"
     del os.environ['LINES']
