@@ -1104,6 +1104,7 @@ def poll(myid,cpu_usage,mem_usage,memphys,memvirt):
             cmd, param = DIE, None
         else :
             add_log_line(gb, "Poll for unknown engine (%s) - recovering" % myid, YELLOW)
+            engine_type = 'GRID'
             Commands.active_engines[myid] = time.time()
             Commands.engine_types[myid] = engine_type
             Commands.engine_stats[myid] = (cpu_usage, mem_usage, memphys, memvirt)
