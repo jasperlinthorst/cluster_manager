@@ -24,7 +24,7 @@ import dowser
 
 def start_web() :
     try :
-        port = 30031
+        port = 30040
         cherrypy.tree.mount(dowser.Root())
         cherrypy.config.update({
             'environment': 'embedded',
