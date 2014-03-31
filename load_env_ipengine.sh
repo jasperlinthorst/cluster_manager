@@ -17,8 +17,21 @@ echo "Waiting for $WAIT seconds..."
 sleep $WAIT
 echo "Waiting period over for $PARAMNR, starting bootstrap."
 
+if [ -z "$TMPDIR" ]
+then
+    echo "Scratch directory is $TMPDIR"
+else
+    TMPDIR=`pwd`
+    echo "Set scratch directory to $TMPDIR"
+fi
+
 echo "Running ulimit"
 ulimit;
+uuid=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1)
+
+echo "Creating work directory $TMPDIR/$uuid"
+mkdir -p $TMPDIR/$uuid
+cd $TMPDIR/$uuid
 
 #load environment
 chmod 744 ./gcp
