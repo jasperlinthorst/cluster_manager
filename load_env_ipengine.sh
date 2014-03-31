@@ -17,7 +17,7 @@ echo "Waiting for $WAIT seconds..."
 sleep $WAIT
 echo "Waiting period over for $PARAMNR, starting bootstrap."
 
-if [ -z "$TMPDIR" ]
+if [ -n "$TMPDIR" ]
 then
     echo "Scratch directory is $TMPDIR"
 else
