@@ -60,6 +60,7 @@ class status:
     address = None
     port = None
     iport = None
+    recover = False
 
     lock = None
     semaphore = initialize_semaphore()
@@ -107,7 +108,8 @@ def process_queue(status, ids) :
             node_id = key
             node = value
             if not node_id in ids :
-                failed += node.get('failed', 0) + node.get('tasks', 0) + node.get('queue', 0) + node.get('unassigned', 0) + node.get('completed', 0)
+                failed += node.get('failed', 0) + node.get('tasks', 0) + node.get('queue', 0) + node.get('unassigned', 0)
+                ready += node.get('completed', 0)
             else :
                 failed += node.get('failed', 0)
                 pending += node.get('tasks', 0)
@@ -395,6 +397,10 @@ def build_windows(gb):
 
 #add line to log windows
 def add_log_line(gb, line, color=0):
+    str_now = datetime.datetime.now().strftime("%B %d %Y %I:%M%p")
+    prefix = '[%s] ' % str_now
+    line = prefix + line
+
     gb.lock.acquire()
     try:
         if (line and line[-1] == '\n'):
@@ -479,7 +485,8 @@ def init_commands(gb):
             gb.wcom.addstr(5,1,"Reload all engines: w")
             gb.wcom.addstr(6,1,"Restart all engines: e")
             gb.wcom.addstr(7,1,"Restart controller: y")
-            gb.wcom.addstr(9,1,"Shutdown: q")
+            gb.wcom.addstr(8,1,"Restart client: p")
+            gb.wcom.addstr(10,1,"Shutdown: q")
             gb.wcom.refresh()
     except Exception, e:
         pass
@@ -544,6 +551,8 @@ def start_controller(gb,status):
         engine_json_path = "./profile/security/ipcontroller-engine.json"
         client_json_path = "./profile/security/ipcontroller-client.json"
         cmd = "ipcontroller --HubFactory.iopub=%d,%d" % (int(status.iport) - 4, int(status.iport) + 7) +" --HubFactory.task=%d,%d" % (int(status.iport) - 3, int(status.iport) + 6) + " --HubFactory.mux=%d,%d" % (int(status.iport) - 2, int(status.iport) + 5) + " --HubFactory.control=%d,%d" % (int(status.iport) - 1, int(status.iport) + 4) + " --HubFactory.hb=%d,%d" % (int(status.iport) + 2, int(status.iport) + 3) + " --port=" + str(status.iport) + " --nodb --quiet --location=" + status.address + " --hwm=" + str(status.hwm) + " --usethreads" + " --ip=*" + " --ProfileDir.location=" + cwd + "/profile/"
+        if status.recover :
+            cmd = "ipcontroller --HubFactory.iopub=%d,%d" % (int(status.iport) - 4, int(status.iport) + 7) + " --HubFactory.task=%d,%d" % (int(status.iport) - 3, int(status.iport) + 6) + " --HubFactory.mux=%d,%d" % (int(status.iport) - 2, int(status.iport) + 5) + " --HubFactory.control=%d,%d" % (int(status.iport) - 1, int(status.iport) + 4) + " --HubFactory.hb=%d,%d" % (int(status.iport) + 2, int(status.iport) + 3) + " --port=" + str(status.iport) + " --reuse --restore --quiet --nodb --location=" + status.address + " --hwm=" + str(status.hwm) + " --usethreads" + " --ip=*" + " --ProfileDir.location=" + cwd + "/profile/"
         add_log_line(gb,"Executing: " + cmd, GREEN)
         args = shlex.split(cmd)
         pc = Popen(args, stdout = subprocess.PIPE, stderr = subprocess.PIPE)
@@ -565,19 +574,56 @@ def start_controller(gb,status):
         retry = 3
         set_status_message(gb,"Starting controller client...",YELLOW)
         time.sleep(5)
-        while(retry):
-            try:
+        while retry > 0 :
+            try :
                 status.taskclient = Client(client_json_path)
-                retry = 0
-            except Exception, e:
-                retry -=1
-                if(retry == 0):
-                    raise e
-                else:
-                    time.sleep(15)
+                break
+            except Exception, e :
+                retry -= 1
+                if retry == 0 :
+                    break
+                else :
+                    time.sleep(5)
         stop_progress_bar(gb)
-        set_status_message(gb,"Controller online",GREEN)
-        add_log_line(gb,"Controller brought online",MAGENTA)
+        if retry > 0 :
+            set_status_message(gb, "Controller online", GREEN)
+            add_log_line(gb, "Controller brought online", MAGENTA)
+        else :
+            set_status_message(gb, "Controller online (client offline)", RED)
+            add_log_line(gb, "Controller brought online, but client is offline", MAGENTA)
+
+def restart_client(gb, status) :
+    set_status_message(gb, "Restarting client...", YELLOW)
+    cwd = os.getcwd()
+    client_json_path = "./profile/security/ipcontroller-client.json"
+    status.lock.acquire()
+    try :
+        if status.taskclient is not None :
+            status.taskclient.close()
+        status.taskclient = None
+        add_log_line(gb, "Client offline", MAGENTA)
+        retry = 3
+        set_status_message(gb, "Starting controller client...", YELLOW)
+        time.sleep(5)
+        while retry > 0 :
+            try :
+                status.taskclient = Client(client_json_path)
+                break
+            except Exception, e :
+                retry -=1
+                if retry == 0 :
+                    break
+                else :
+                    time.sleep(5)
+        stop_progress_bar(gb)
+        if retry > 0 :
+            set_status_message(gb, "Client online", GREEN)
+            add_log_line(gb, "Client brought online", GREEN)
+        else :
+            set_status_message(gb, "Client offline", RED)
+            add_log_line(gb, "Could not attach client", RED)
+    finally :
+        status.lock.release()
 
 #start ipython cluster controller
 def restart_controller(gb, status):
@@ -588,6 +634,8 @@ def restart_controller(gb, status):
     client_json_path = "./profile/security/ipcontroller-client.json"
     status.lock.acquire()
     try :
+        if status.taskclient is not None :
+            status.taskclient.close()
         status.taskclient = None
         if controller_online(status) :
             shutil.move(client_json_path, client_json_path + '.bak')
@@ -627,19 +675,23 @@ def restart_controller(gb, status):
         retry = 3
         set_status_message(gb, "Starting controller client...", YELLOW)
         time.sleep(5)
-        while (retry):
+        while retry > 0 :
             try:
                 status.taskclient = Client(client_json_path)
-                retry = 0
-            except Exception, e:
+                break
+            except Exception, e :
                 retry -=1
-                if (retry == 0):
-                    raise e
+                if retry == 0 :
+                    break
                 else:
-                    time.sleep(15)
+                    time.sleep(5)
         stop_progress_bar(gb)
-        set_status_message(gb, "Controller online", GREEN)
-        add_log_line(gb, "Controller brought online", MAGENTA)
+        if retry > 0 :
+            set_status_message(gb, "Controller online", GREEN)
+            add_log_line(gb, "Controller brought online", MAGENTA)
+        else :
+            set_status_message(gb, "Controller online (client offline)", RED)
+            add_log_line(gb, "Controller brought online, but client is offline", MAGENTA)
 
 #stop ipython cluster controller
 def stop_controller(gb,status):
@@ -651,7 +703,9 @@ def stop_controller(gb,status):
             stop_pbs(gb,status,len(status.pbs_engines))
         if(status.grid_engines):
             stop_grid(gb,status,sum(status.grid_engines_count))
-        
+       
+        if status.taskclient is not None :
+            status.taskclient.close()
         status.taskclient = None
         set_status_message(gb,"Waiting for controller to terminate..", YELLOW)
         if (controller_online(status)) :
@@ -957,13 +1011,14 @@ def restart_engines(gb,status):
     add_log_line(gb,"All cluster engines restarted",MAGENTA)
 
 
-def init_status(status,envname,address,port,iport,hwm):
+def init_status(status,envname,address,port,iport,hwm, recover):
     status.lock = threading.RLock()
     status.envname = envname
     status.address = address
     status.port = port
     status.iport = iport
     status.hwm = hwm
+    status.recover = recover
 
 
 
@@ -1020,7 +1075,7 @@ def register(myip,engine_type,cores,totmem):
         Commands.engine_types[myid] = engine_type
         Commands.engine_stats[myid] = (0.0,0.0,0.0,0.0)
         Commands.pending_command[myid] = NOOP
-        add_log_line(gb,"Engine (" + engine_type + ", " + str(cores) + "C:" + "{:1.1f}".format((totmem / 1024.0 / float(cores))) + " GB) on " + myip + " registered as: " + myid,CYAN)
+        add_log_line(gb, "Engine (" + engine_type + ", " + str(cores) + "C:" + "{:1.1f}".format((totmem / 1024.0 / float(cores))) + " GB) on " + myip + " registered as: " + myid, CYAN)
     finally:
         Commands.lock.release()
     if(engine_type == "GRID"):
@@ -1039,14 +1094,22 @@ def poll(myid,cpu_usage,mem_usage,memphys,memvirt):
         cmd = Commands.pending_command[myid]
         param = status.codeid
         Commands.active_engines[myid] = time.time()
-        Commands.engine_stats[myid] = (cpu_usage,mem_usage,memphys,memvirt)
+        Commands.engine_stats[myid] = (cpu_usage, mem_usage, memphys, memvirt)
         if(cmd): 
             Commands.pending_command[myid] = NOOP
             Commands.command_counter += 1
     except KeyError:
-        add_log_line(gb,"Poll for unknown engine id: " + myid,RED)
-        cmd = DIE
-        param = None
+        if not status.recover :
+            add_log_line(gb, "Poll for unknown engine (%s) - dropping" % myid, RED)
+            cmd, param = DIE, None
+        else :
+            add_log_line(gb, "Poll for unknown engine (%s) - recovering" % myid, YELLOW)
+            engine_type = 'GRID'
+            Commands.active_engines[myid] = time.time()
+            Commands.engine_types[myid] = engine_type
+            Commands.engine_stats[myid] = (cpu_usage, mem_usage, memphys, memvirt)
+            Commands.pending_command[myid] = NOOP
+            cmd, param = NOOP, status.codeid
     finally:
         Commands.lock.release()
     return cmd, param
@@ -1090,7 +1153,7 @@ def _unregister(myid):
         Commands.lock.release()
     return et
    
-def thread_start_server(port):
+def thread_start_server(port) :
     Commands.lock = threading.RLock()
     server = SimpleXMLRPCServer(("", int(port)), logRequests = False)
     server.register_function(register)
@@ -1099,7 +1162,10 @@ def thread_start_server(port):
     server.register_function(reload)
     server.register_function(report_restart)
     Commands.server = server
-    server.serve_forever()
+    try :
+        server.serve_forever()
+    except :
+        add_log_line(gb, 'RPC Server caught an exception.', RED)
 
 def thread_purge() :
     while True :
@@ -1118,7 +1184,7 @@ def thread_purge() :
 
         try :
             if client and now - last_purge > PURGE_INTERVAL :
-                client.purge_everything()
+                client.purge_local_results('all')
                 str_now = datetime.datetime.now().strftime("%B %d %Y %I:%M%p")
                 add_log_line(gb, 'Purged results (%s).' % str_now, CYAN)
         finally :
@@ -1130,6 +1196,7 @@ def thread_purge() :
             status.semaphore.acquire(delta = _SEMAPHORE_VALUE)
             while status.semaphore.value < 0 :
                 time.sleep(10)
+            time.sleep(60)
             status.lock.acquire()
             try :
                 if (status.taskclient) :
@@ -1138,8 +1205,11 @@ def thread_purge() :
                     failed, pending, scheduled, ready = process_queue(status.queue_status, status.queue_ids)
                     if pending == 0 and scheduled == 0 :
                         restart_controller(gb, status)
+            except :
+                pass
             finally :
                 status.lock.release()
+                time.sleep(15)
                 status.semaphore.release(delta = _SEMAPHORE_VALUE)
         time.sleep(5)
 
@@ -1202,6 +1272,8 @@ def thread_check_commands():
              if (status.taskclient) :
                   status.queue_status = status.taskclient.queue_status()
                   status.queue_ids = numpy.copy(status.taskclient.ids)
+        except :
+            pass
         finally:
              status.lock.release()
 
@@ -1218,7 +1290,6 @@ def start_server(port):
     t = threading.Thread(target = thread_purge)
     t.daemon = True
     t.start()
-
 
 def thread_grid_monitor(status):
     while 1:
@@ -1304,13 +1375,14 @@ def get_hostname():
 
 
 def main(scr, *args, **kwds):
-    opts,args = getopt.getopt(sys.argv[1:],"e:a:p:i:",["env=","address=","port=","iport="])
+    opts,args = getopt.getopt(sys.argv[1:],"e:a:p:i:",["env=", "address=", "port=", "iport=", "hwm=", "recover"])
 
     envname = "grid:/ipengine.dist"
     address = None
     iport   = "30023"
     port    = "30024"
     hwm     = "2"
+    recover = False
     for o,a in opts:
         if o in ('-e', '--env'):
             envname = a
@@ -1322,11 +1394,13 @@ def main(scr, *args, **kwds):
             iport = a
         elif o in ('--hwm', ):
             hwm = a
+        elif o in ('--recover', ):
+            recover = True
     
     if address is None:
         address = get_hostname()
 
-    init_status(status,envname,address,port,iport,hwm)
+    init_status(status, envname, address, port, iport, hwm, recover)
     gb.scr = scr
     gb.log_file = open('cluster.log','wb')
 
@@ -1334,8 +1408,7 @@ def main(scr, *args, **kwds):
     t = start_status_display(gb,status)
     start_server(port)
     start_grid_monitor(status)
-   
-
+  
     #workaround for bug in curses: no resize messages
     os.environ['LINES']="blah"
     del os.environ['LINES']
@@ -1378,6 +1451,11 @@ def main(scr, *args, **kwds):
                         restart_controller(gb,status)
                 else:
                     set_status_message(gb, "Controller not started", YELLOW)
+            
+            elif c == ord('p'): #RESTART CLIENT
+                ans = enter_command(gb, "Are you sure? (yes/no): ")
+                if ans == 'yes' :
+                    restart_client(gb, status)
             
             elif c == ord('z'):  #STOP CONTROLLER
                 ans = enter_command(gb, "Are you sure? (yes/no): ")

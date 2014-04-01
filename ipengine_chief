@@ -13,7 +13,7 @@ import random
 from dns import resolver, reversename
 
 PING_INTERVAL = 120
-PING_TIMEOUT = 480
+PING_TIMEOUT = 720
 REQUEST_TIMEOUT = 30
 
 REGISTRATION_ATTEMPTS = 5
@@ -141,6 +141,7 @@ try :
     while True :
         if lengine.poll() is not None:
             del lengine
+            lengine = None
             s.unregister(myid)
             break
         
@@ -157,11 +158,13 @@ try :
                 if (cmd == DIE) :
                     stop_engine(lengine)
                     del lengine
+                    lengine = None
                     s.unregister(myid)
                     break
                 elif (cmd == RESTART_ENGINE) :
                     stop_engine(lengine)
                     del lengine
+                    lengine = None
                     lengine = start_engine(param)
                     lengine_monitor = psutil.Process(lengine.pid)
                     continue
@@ -169,6 +172,7 @@ try :
                     print "\t[-] UNKNOWN COMMAND RECEIVED, EXITING!"
                     stop_engine(lengine)
                     del lengine
+                    lengine = None
                     break
         except (socket.error, httplib.HTTPException), serror :
             print '\t[!] Caught a socket error!'
@@ -180,5 +184,6 @@ except (Exception, KeyboardInterrupt, SystemExit) :
     if (not lengine is None) :
         stop_engine(lengine)
         del lengine
+        lengine = None
     s.unregister(myid)
     raise
