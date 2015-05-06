@@ -30,7 +30,8 @@ CYAN=6
 TIMEOUT = 720
 PURGE_INTERVAL = 1800
 
-_SEMAPHORE_KEY = 691989
+#_SEMAPHORE_KEY = 691989
+_SEMAPHORE_KEY = 691990
 _SEMAPHORE_VALUE = 100
 
 def initialize_semaphore() :
@@ -546,13 +547,37 @@ def start_controller(gb,status):
     set_status_message(gb,"Waiting for controller to finish initialization...",YELLOW)
     set_progress_bar(gb,0.0)
     status.lock.acquire()
+
+    internal=range(int(status.iport)+10000,int(status.iport)+10004)
     try:
         cwd = os.getcwd()
         engine_json_path = "./profile/security/ipcontroller-engine.json"
         client_json_path = "./profile/security/ipcontroller-client.json"
-        cmd = "ipcontroller --HubFactory.iopub=%d,%d" % (int(status.iport) - 4, int(status.iport) + 7) +" --HubFactory.task=%d,%d" % (int(status.iport) - 3, int(status.iport) + 6) + " --HubFactory.mux=%d,%d" % (int(status.iport) - 2, int(status.iport) + 5) + " --HubFactory.control=%d,%d" % (int(status.iport) - 1, int(status.iport) + 4) + " --HubFactory.hb=%d,%d" % (int(status.iport) + 2, int(status.iport) + 3) + " --port=" + str(status.iport) + " --nodb --quiet --location=" + status.address + " --hwm=" + str(status.hwm) + " --usethreads" + " --ip=*" + " --ProfileDir.location=" + cwd + "/profile/"
-        if status.recover :
-            cmd = "ipcontroller --HubFactory.iopub=%d,%d" % (int(status.iport) - 4, int(status.iport) + 7) + " --HubFactory.task=%d,%d" % (int(status.iport) - 3, int(status.iport) + 6) + " --HubFactory.mux=%d,%d" % (int(status.iport) - 2, int(status.iport) + 5) + " --HubFactory.control=%d,%d" % (int(status.iport) - 1, int(status.iport) + 4) + " --HubFactory.hb=%d,%d" % (int(status.iport) + 2, int(status.iport) + 3) + " --port=" + str(status.iport) + " --reuse --restore --quiet --nodb --location=" + status.address + " --hwm=" + str(status.hwm) + " --usethreads" + " --ip=*" + " --ProfileDir.location=" + cwd + "/profile/"
+        cmd = "ipcontroller --HubFactory.iopub=%d,%d" % (internal[3], int(status.iport) + 6) + \
+                          " --HubFactory.task=%d,%d" % (internal[2], int(status.iport) + 5) + \
+                          " --HubFactory.mux=%d,%d" % (internal[1], int(status.iport) + 4) + \
+                          " --HubFactory.control=%d,%d" % (internal[0], int(status.iport) + 3) + \
+                          " --HubFactory.hb=%d,%d" % (int(status.iport) + 1, int(status.iport) + 2) + \
+                          " --port=" + str(status.iport) + \
+                          " --nodb --quiet --location=" + status.address + \
+                          " --hwm=" + str(status.hwm) + \
+                          " --usethreads" + \
+                          " --ip=*" + \
+                          " --ProfileDir.location=" + cwd + "/profile/"
+        
+        if status.recover:
+            cmd = "ipcontroller --HubFactory.iopub=%d,%d" % (internal[3], int(status.iport) + 7) + \
+                    " --HubFactory.task=%d,%d" % (internal[2], int(status.iport) + 6) + \
+                    " --HubFactory.mux=%d,%d" % (internal[1], int(status.iport) + 5) + \
+                    " --HubFactory.control=%d,%d" % (internal[0], int(status.iport) + 4) + \
+                    " --HubFactory.hb=%d,%d" % (int(status.iport) + 2, int(status.iport) + 3) + \
+                    " --port=" + str(status.iport) + \
+                    " --reuse --restore --quiet --nodb --location=" + status.address + \
+                    " --hwm=" + str(status.hwm) + \
+                    " --usethreads" + \
+                    " --ip=*" + \
+                    " --ProfileDir.location=" + cwd + "/profile/"
+        
         add_log_line(gb,"Executing: " + cmd, GREEN)
         args = shlex.split(cmd)
         pc = Popen(args, stdout = subprocess.PIPE, stderr = subprocess.PIPE)
@@ -649,8 +674,19 @@ def restart_controller(gb, status):
         status.lock.release()
     
     time.sleep(4) #finishes log output, lets threads terminate
-    
-    cmd = "ipcontroller --HubFactory.iopub=%d,%d" % (int(status.iport) - 4, int(status.iport) + 7) + " --HubFactory.task=%d,%d" % (int(status.iport) - 3, int(status.iport) + 6) + " --HubFactory.mux=%d,%d" % (int(status.iport) - 2, int(status.iport) + 5) + " --HubFactory.control=%d,%d" % (int(status.iport) - 1, int(status.iport) + 4) + " --HubFactory.hb=%d,%d" % (int(status.iport) + 2, int(status.iport) + 3) + " --port=" + str(status.iport) + " --reuse --restore --quiet --nodb --location=" + status.address + " --hwm=" + str(status.hwm) + " --usethreads" + " --ip=*" + " --ProfileDir.location=" + cwd + "/profile/"
+
+    internal=range(int(status.iport)+10000,int(status.iport)+10004)
+    cmd = "ipcontroller --HubFactory.iopub=%d,%d" % (internal[3], int(status.iport) + 7) + \
+            " --HubFactory.task=%d,%d" % (internal[2], int(status.iport) + 6) + \
+            " --HubFactory.mux=%d,%d" % (internal[1], int(status.iport) + 5) + \
+            " --HubFactory.control=%d,%d" % (internal[0], int(status.iport) + 4) + \
+            " --HubFactory.hb=%d,%d" % (int(status.iport) + 2, int(status.iport) + 3) + \
+            " --port=" + str(status.iport) + \
+            " --reuse --restore --quiet --nodb --location=" + status.address + \
+            " --hwm=" + str(status.hwm) + \
+            " --usethreads" + \
+            " --ip=*" + \
+            " --ProfileDir.location=" + cwd + "/profile/"
     status.lock.acquire()
     try :
         shutil.move(client_json_path + '.bak', client_json_path)
