@@ -548,16 +548,16 @@ def start_controller(gb,status):
     set_progress_bar(gb,0.0)
     status.lock.acquire()
 
-    internal=range(int(status.iport)+10000,int(status.iport)+10004)
+    internal = range(int(status.iport) + 10000, int(status.iport) + 10005)
     try:
         cwd = os.getcwd()
         engine_json_path = "./profile/security/ipcontroller-engine.json"
         client_json_path = "./profile/security/ipcontroller-client.json"
-        cmd = "ipcontroller --HubFactory.iopub=%d,%d" % (internal[3], int(status.iport) + 6) + \
-                          " --HubFactory.task=%d,%d" % (internal[2], int(status.iport) + 5) + \
-                          " --HubFactory.mux=%d,%d" % (internal[1], int(status.iport) + 4) + \
-                          " --HubFactory.control=%d,%d" % (internal[0], int(status.iport) + 3) + \
-                          " --HubFactory.hb=%d,%d" % (int(status.iport) + 1, int(status.iport) + 2) + \
+        cmd = "ipcontroller --HubFactory.iopub=%d,%d" % (internal[4], int(status.iport) + 5) + \
+                          " --HubFactory.task=%d,%d" % (internal[3], int(status.iport) + 4) + \
+                          " --HubFactory.mux=%d,%d" % (internal[2], int(status.iport) + 3) + \
+                          " --HubFactory.control=%d,%d" % (internal[1], int(status.iport) + 2) + \
+                          " --HubFactory.hb=%d,%d" % (internal[0], int(status.iport) + 1) + \
                           " --port=" + str(status.iport) + \
                           " --nodb --quiet --location=" + status.address + \
                           " --hwm=" + str(status.hwm) + \
@@ -566,11 +566,11 @@ def start_controller(gb,status):
                           " --ProfileDir.location=" + cwd + "/profile/"
         
         if status.recover:
-            cmd = "ipcontroller --HubFactory.iopub=%d,%d" % (internal[3], int(status.iport) + 7) + \
-                    " --HubFactory.task=%d,%d" % (internal[2], int(status.iport) + 6) + \
-                    " --HubFactory.mux=%d,%d" % (internal[1], int(status.iport) + 5) + \
-                    " --HubFactory.control=%d,%d" % (internal[0], int(status.iport) + 4) + \
-                    " --HubFactory.hb=%d,%d" % (int(status.iport) + 2, int(status.iport) + 3) + \
+            cmd = "ipcontroller --HubFactory.iopub=%d,%d" % (internal[4], int(status.iport) + 5) + \
+                    " --HubFactory.task=%d,%d" % (internal[3], int(status.iport) + 4) + \
+                    " --HubFactory.mux=%d,%d" % (internal[2], int(status.iport) + 3) + \
+                    " --HubFactory.control=%d,%d" % (internal[1], int(status.iport) + 2) + \
+                    " --HubFactory.hb=%d,%d" % (internal[0], int(status.iport) + 1) + \
                     " --port=" + str(status.iport) + \
                     " --reuse --restore --quiet --nodb --location=" + status.address + \
                     " --hwm=" + str(status.hwm) + \
