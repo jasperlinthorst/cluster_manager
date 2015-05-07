@@ -30,16 +30,8 @@ CYAN=6
 TIMEOUT = 720
 PURGE_INTERVAL = 1800
 
-#_SEMAPHORE_KEY = 691989
-_SEMAPHORE_KEY = 691990
+_DEFAULT_SEMAPHORE_KEY = 691990
 _SEMAPHORE_VALUE = 100
-
-def initialize_semaphore() :
-    try :   
-        sem = sysv_ipc.Semaphore(_SEMAPHORE_KEY, flags = sysv_ipc.IPC_CREX, initial_value = _SEMAPHORE_VALUE) 
-    except :
-        sem = sysv_ipc.Semaphore(_SEMAPHORE_KEY) 
-    return sem
 
 #current screen info
 class gb:
@@ -64,7 +56,8 @@ class status:
     recover = False
 
     lock = None
-    semaphore = initialize_semaphore()
+    semaphore = None
+    semaphore_key = _DEFAULT_SEMAPHORE_KEY
     controller = False
     controller_monitor = None
     taskclient = None
@@ -90,7 +83,32 @@ class status:
     should_restart = False
 
     last_purge = -1
+
+    @staticmethod
+    def initialize_semaphore(key) :
+        try :   
+            sem = sysv_ipc.Semaphore(key, flags = sysv_ipc.IPC_CREX, initial_value = _SEMAPHORE_VALUE) 
+        except :
+            sem = sysv_ipc.Semaphore(key)
+        return sem
+
 NOSTAT = (0.0, 0.0, 0.0, 0.0, 0.0)
+
+def check_output(string, ignore_list = ['no version information available']) :
+    lines = string.split('\n')
+    for line in lines :
+        line = line.strip()
+        if line == '' :
+            continue
+        should_ignore = False
+        for ignore in ignore_list :
+            #add_log_line(gb, '%s | %s | %s' % (line, ignore, str(ignore in line)), RED)
+            if ignore in line :
+                should_ignore = True
+                break
+        if not should_ignore :
+            return False
+    return True
 
 def process_queue(status, ids) :
     failed, pending, scheduled, ready = 0, 0, 0, 0
@@ -553,11 +571,12 @@ def start_controller(gb,status):
         cwd = os.getcwd()
         engine_json_path = "./profile/security/ipcontroller-engine.json"
         client_json_path = "./profile/security/ipcontroller-client.json"
-        cmd = "ipcontroller --HubFactory.iopub=%d,%d" % (internal[4], int(status.iport) + 5) + \
-                          " --HubFactory.task=%d,%d" % (internal[3], int(status.iport) + 4) + \
-                          " --HubFactory.mux=%d,%d" % (internal[2], int(status.iport) + 3) + \
-                          " --HubFactory.control=%d,%d" % (internal[1], int(status.iport) + 2) + \
-                          " --HubFactory.hb=%d,%d" % (internal[0], int(status.iport) + 1) + \
+        cmd = "ipcontroller --HubFactory.notifier_port=%d" % (internal[4], ) + \
+                          " --HubFactory.iopub=%d,%d" % (internal[3], int(status.iport) + 6) + \
+                          " --HubFactory.task=%d,%d" % (internal[2], int(status.iport) + 5) + \
+                          " --HubFactory.mux=%d,%d" % (internal[1], int(status.iport) + 4) + \
+                          " --HubFactory.control=%d,%d" % (internal[0], int(status.iport) + 3) + \
+                          " --HubFactory.hb=%d,%d" % (int(status.iport) + 1, int(status.iport) + 2) + \
                           " --port=" + str(status.iport) + \
                           " --nodb --quiet --location=" + status.address + \
                           " --hwm=" + str(status.hwm) + \
@@ -566,11 +585,12 @@ def start_controller(gb,status):
                           " --ProfileDir.location=" + cwd + "/profile/"
         
         if status.recover:
-            cmd = "ipcontroller --HubFactory.iopub=%d,%d" % (internal[4], int(status.iport) + 5) + \
-                    " --HubFactory.task=%d,%d" % (internal[3], int(status.iport) + 4) + \
-                    " --HubFactory.mux=%d,%d" % (internal[2], int(status.iport) + 3) + \
-                    " --HubFactory.control=%d,%d" % (internal[1], int(status.iport) + 2) + \
-                    " --HubFactory.hb=%d,%d" % (internal[0], int(status.iport) + 1) + \
+            cmd = "ipcontroller --HubFactory.notifier_port=%d" % (internal[4], ) + \
+                    " --HubFactory.iopub=%d,%d" % (internal[3], int(status.iport) + 6) + \
+                    " --HubFactory.task=%d,%d" % (internal[2], int(status.iport) + 5) + \
+                    " --HubFactory.mux=%d,%d" % (internal[1], int(status.iport) + 4) + \
+                    " --HubFactory.control=%d,%d" % (internal[0], int(status.iport) + 3) + \
+                    " --HubFactory.hb=%d,%d" % (int(status.iport) + 1, int(status.iport) + 2) + \
                     " --port=" + str(status.iport) + \
                     " --reuse --restore --quiet --nodb --location=" + status.address + \
                     " --hwm=" + str(status.hwm) + \
@@ -884,7 +904,7 @@ def start_grid(gb,status,n,selgrid="all"):
 
             args = shlex.split(cmd)
             out = Popen(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE).communicate()
-            if(out[1]):
+            if not check_output(out[1]) :
                 add_log_line(gb,"GRID job submission failed",RED)
                 for line in out[1].split('\n'):
                     add_log_line(gb,line,RED)
@@ -1047,15 +1067,16 @@ def restart_engines(gb,status):
     add_log_line(gb,"All cluster engines restarted",MAGENTA)
 
 
-def init_status(status,envname,address,port,iport,hwm, recover):
+def init_status(status, envname, address, port, iport, hwm, semaphore_key, recover):
     status.lock = threading.RLock()
     status.envname = envname
     status.address = address
     status.port = port
     status.iport = iport
     status.hwm = hwm
+    status.semaphore_key = semaphore_key
     status.recover = recover
-
+    status.semaphore = status.initialize_semaphore(semaphore_key)
 
 
 NOOP=0
@@ -1411,13 +1432,14 @@ def get_hostname():
 
 
 def main(scr, *args, **kwds):
-    opts,args = getopt.getopt(sys.argv[1:],"e:a:p:i:",["env=", "address=", "port=", "iport=", "hwm=", "recover"])
+    opts,args = getopt.getopt(sys.argv[1:],"e:a:p:i:",["env=", "address=", "port=", "iport=", "hwm=", "semaphore=", "recover"])
 
     envname = "grid:/ipengine.dist"
     address = None
     iport   = "30023"
     port    = "30024"
     hwm     = "2"
+    semaphore_key = _DEFAULT_SEMAPHORE_KEY
     recover = False
     for o,a in opts:
         if o in ('-e', '--env'):
@@ -1432,11 +1454,13 @@ def main(scr, *args, **kwds):
             hwm = a
         elif o in ('--recover', ):
             recover = True
+        elif o in ('--semaphore', ) :
+            semaphore_key = int(a)
     
     if address is None:
         address = get_hostname()
 
-    init_status(status, envname, address, port, iport, hwm, recover)
+    init_status(status, envname, address, port, iport, hwm, semaphore_key, recover)
     gb.scr = scr
     gb.log_file = open('cluster.log','wb')
 
