@@ -1,9 +1,9 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 import curses, curses.textpad, curses.ascii
 import os
 import subprocess, sys, getopt, time,shlex
 from subprocess import Popen
-import thread
+import _thread
 import threading
 import cluster_storage
 from collections import defaultdict
@@ -11,7 +11,7 @@ from collections import defaultdict
 import sysv_ipc
 import socket
 from dns import resolver,reversename
-from SimpleXMLRPCServer import SimpleXMLRPCServer
+from xmlrpc.server import SimpleXMLRPCServer
 import random
 import psutil
 import shutil
@@ -112,7 +112,7 @@ def check_output(string, ignore_list = ['no version information available']) :
 
 def process_queue(status, ids) :
     failed, pending, scheduled, ready = 0, 0, 0, 0
-    for key, value in status.items() :
+    for key, value in list(status.items()) :
         if key == 'failed' :
             failed += value
         elif key == 'tasks' :
@@ -161,18 +161,21 @@ def border_win(parent,height,width,x,y,**kwargs):
 
 #threaded output of a file to the log window
 def thread_log_output(file, gb, color, filter):
+    #add_log_line(gb,"Starting thread_log_output, IGNORE list: "+str(filter),color)
     while 1 :
         line = file.readline()
         if (not line):
             break
-         
+        if not(isinstance(line,str)):
+            line=line.decode("utf-8")
+
         if (filter and len([f for f in filter if f in line]) > 0) :
             pass
         else:    
             add_log_line(gb,line,color)
 
 def log_output(file, gb, color = 0, filter = []):
-    t = thread.start_new_thread(thread_log_output, (file, gb, color, filter))
+    t = _thread.start_new_thread(thread_log_output, (file, gb, color, filter))
     return t
 
 def get_pbs_stats(status):
@@ -186,7 +189,8 @@ def get_pbs_stats(status):
         cmd = "gawk '{print $5}'"
         args = shlex.split(cmd)
         p2 = Popen(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE,stdin=p.stdout)
-        output = p2.communicate()[0]
+        output = p2.communicate()[0].decode('utf-8')
+        
         z = defaultdict(int)
         for k in output[2:]:
             z[k] += 1
@@ -255,6 +259,7 @@ def thread_display_status(gb,status):
 
                 gb.wcom_status.addstr(5,1,"PBS engines: ")
                 stats = get_pbs_stats(status)
+
                 status.pbs_stats = stats
                 unaccounted = stats[2] - status.engine_type_count['PBS']
                 if(stats[2] and not unaccounted != 0):
@@ -262,7 +267,7 @@ def thread_display_status(gb,status):
                 else:
                     color = YELLOW
                 if(unaccounted != 0):
-                    gb.wcom_status.addstr(3,18,str(stats[2]) + "("+str(-unaccounted) +")",curses.color_pair(color))
+                    gb.wcom_status.addstr(5,18,str(stats[2]) + "("+str(-unaccounted) +")",curses.color_pair(color))
                 else:
                     gb.wcom_status.addstr(5,18,str(stats[2]),curses.color_pair(color))
 
@@ -313,7 +318,7 @@ def thread_display_status(gb,status):
                     gb.wcom_status.addstr(9, 18, descr)
                 
                 gb.wcom_status.refresh()
-        except Exception,e:
+        except Exception as e:
             add_log_line(gb,"Exception in display thread: " + str(e), RED)
         finally:
             gb.lock.release()
@@ -344,7 +349,7 @@ def build_windows(gb):
     try:
         
         #clear screen in curses does not work somehow. 
-        print "\033[2J"
+        print("\033[2J")
 
         gb.scr.erase()
         gb.scr.refresh()
@@ -418,18 +423,22 @@ def build_windows(gb):
 def add_log_line(gb, line, color=0):
     str_now = datetime.datetime.now().strftime("%B %d %Y %I:%M%p")
     prefix = '[%s] ' % str_now
-    line = prefix + line
 
+    if isinstance(line,bytes):
+        line=line.decode('utf-8')
+
+    line = prefix + line
+    
     gb.lock.acquire()
     try:
         if (line and line[-1] == '\n'):
             gb.log_file.write(line)
         else :
-            gb.log_file.write(line + '\n')
+            gb.log_file.write(line+'\n')
         gb.log_file.flush()
         if (gb.wlog):
             try:
-                line = str(line.decode('ascii'))
+                line = str(line)
             except UnicodeDecodeError:
                 line = "Invalid line format (unicode) encountered"
                 color = RED
@@ -442,8 +451,9 @@ def add_log_line(gb, line, color=0):
                 gb.wlog.scroll()
                 gb.wlog.addstr(gb.wlog_size[0] - 1,1,line,curses.color_pair(color))
             gb.wlog.refresh()
-    except Exception, e:
-        pass
+    #except Exception as e:
+    #    print(e)
+    #    pass
     finally:
         gb.lock.release()
 
@@ -455,7 +465,7 @@ def set_status_message(gb, line, color = 0):
             gb.wstatus.addstr(0,0,line,curses.color_pair(color))
             gb.wstatus.clrtoeol()
             gb.wstatus.refresh()
-    except Exception, e:
+    except Exception as e:
         pass
     finally:
         gb.lock.release()
@@ -475,7 +485,7 @@ def set_progress_bar(gb,s):
                 gb.wstatus.addstr(1,0,line,curses.color_pair(MAGENTA))
                 gb.wstatus.clrtoeol()
                 gb.wstatus.refresh()
-    except Exception,e:
+    except Exception as e:
         add_log_line(gb,"Exception in set_progress_bar: " + str(e),RED)
     finally:
         gb.lock.release()
@@ -487,7 +497,7 @@ def stop_progress_bar(gb):
             gb.wstatus.addstr(1,0,"")
             gb.wstatus.clrtoeol()
             gb.wstatus.refresh()
-    except Exception, e:
+    except Exception as e:
         pass
     finally:
         gb.lock.release()
@@ -507,7 +517,7 @@ def init_commands(gb):
             gb.wcom.addstr(8,1,"Restart client: p")
             gb.wcom.addstr(10,1,"Shutdown: q")
             gb.wcom.refresh()
-    except Exception, e:
+    except Exception as e:
         pass
     finally:
         gb.lock.release()
@@ -565,52 +575,54 @@ def start_controller(gb,status):
     set_status_message(gb,"Waiting for controller to finish initialization...",YELLOW)
     set_progress_bar(gb,0.0)
     status.lock.acquire()
-    ipcontrollerpath=subprocess.check_output(["which","ipcontroller"])#.decode('utf-8') #check actual path of ipcontroller so we can switch python version in call
-
-    internal = range(int(status.iport) + 10000, int(status.iport) + 10005)
+    ipcontrollerpath=subprocess.check_output(["which","ipcontroller"]).decode('utf-8') #check actual path of ipcontroller so we can switch python version in call
+    internal = list(range(int(status.iport) + 10000, int(status.iport) + 10005))
     try:
         cwd = os.getcwd()
         engine_json_path = "./profile/security/ipcontroller-engine.json"
         client_json_path = "./profile/security/ipcontroller-client.json"
-        cmd = "python3 "+ipcontrollerpath+" --HubFactory.notifier_port=%d" % (internal[4], ) + \
+        cmd = "python3.4exec "+ ipcontrollerpath +" --HubFactory.notifier_port=%d" % (internal[4], ) + \
                           " --HubFactory.iopub=%d,%d" % (internal[3], int(status.iport) + 6) + \
                           " --HubFactory.task=%d,%d" % (internal[2], int(status.iport) + 5) + \
                           " --HubFactory.mux=%d,%d" % (internal[1], int(status.iport) + 4) + \
                           " --HubFactory.control=%d,%d" % (internal[0], int(status.iport) + 3) + \
                           " --HubFactory.hb=%d,%d" % (int(status.iport) + 1, int(status.iport) + 2) + \
                           " --port=" + str(status.iport) + \
-                          " --nodb --quiet --location=" + status.address + \
+                          " --nodb --location=" + status.address + \
                           " --hwm=" + str(status.hwm) + \
                           " --usethreads" + \
                           " --ip=*" + \
                           " --ProfileDir.location=" + cwd + "/profile/"
         
         if status.recover:
-            cmd = "python3 "+ipcontrollerpath+" --HubFactory.notifier_port=%d" % (internal[4], ) + \
+            cmd = "python3.4exec "+ ipcontrollerpath +" --HubFactory.notifier_port=%d" % (internal[4], ) + \
                     " --HubFactory.iopub=%d,%d" % (internal[3], int(status.iport) + 6) + \
                     " --HubFactory.task=%d,%d" % (internal[2], int(status.iport) + 5) + \
                     " --HubFactory.mux=%d,%d" % (internal[1], int(status.iport) + 4) + \
                     " --HubFactory.control=%d,%d" % (internal[0], int(status.iport) + 3) + \
                     " --HubFactory.hb=%d,%d" % (int(status.iport) + 1, int(status.iport) + 2) + \
                     " --port=" + str(status.iport) + \
-                    " --reuse --restore --quiet --nodb --location=" + status.address + \
+                    " --reuse --restore --nodb --location=" + status.address + \
                     " --hwm=" + str(status.hwm) + \
                     " --usethreads" + \
                     " --ip=*" + \
                     " --ProfileDir.location=" + cwd + "/profile/"
         
-        add_log_line(gb,"Executing: " + cmd, GREEN)
         args = shlex.split(cmd)
+
+        add_log_line(gb, "cmd: %s" % cmd, MAGENTA)
+
         pc = Popen(args, stdout = subprocess.PIPE, stderr = subprocess.PIPE)
         status.controller = pc
         status.controller_monitor = psutil.Process(pc.pid)
         status.should_restart = False
     finally:
         status.lock.release()
-    log_output(pc.stdout, gb, WHITE, ['distributing Tasks', 'Getting task result', 'Queuing task', 'sync properties', 'Clearing', 'Cleared'])
-    log_output(pc.stderr, gb, RED)
+    
+    log_output(pc.stdout, gb, WHITE, filter=['distributing Tasks', 'Getting task result', 'Queuing task', 'sync properties', 'Clearing', 'Cleared'])
+    log_output(pc.stderr, gb, RED, filter=['queue_request','heartbeat:missed'])
     set_progress_bar(gb,0.4)
-
+    
     while(pc.poll() is None and not os.path.exists(engine_json_path)):
         time.sleep(1)
 
@@ -624,7 +636,7 @@ def start_controller(gb,status):
             try :
                 status.taskclient = Client(client_json_path)
                 break
-            except Exception, e :
+            except Exception as e :
                 retry -= 1
                 if retry == 0 :
                     break
@@ -655,7 +667,7 @@ def restart_client(gb, status) :
             try :
                 status.taskclient = Client(client_json_path)
                 break
-            except Exception, e :
+            except Exception as e :
                 retry -=1
                 if retry == 0 :
                     break
@@ -695,9 +707,10 @@ def restart_controller(gb, status):
         status.lock.release()
     
     time.sleep(4) #finishes log output, lets threads terminate
-
-    internal=range(int(status.iport)+10000,int(status.iport)+10004)
-    cmd = "ipcontroller --HubFactory.iopub=%d,%d" % (internal[3], int(status.iport) + 7) + \
+    
+    ipcontrollerpath=subprocess.check_output(["which","ipcontroller"]).decode('utf-8') #check actual path of ipcontroller so we can switch python version in call
+    internal=list(range(int(status.iport)+10000,int(status.iport)+10004))
+    cmd = "python3.4exec "+ipcontrollerpath+" --HubFactory.iopub=%d,%d" % (internal[3], int(status.iport) + 7) + \
             " --HubFactory.task=%d,%d" % (internal[2], int(status.iport) + 6) + \
             " --HubFactory.mux=%d,%d" % (internal[1], int(status.iport) + 5) + \
             " --HubFactory.control=%d,%d" % (internal[0], int(status.iport) + 4) + \
@@ -719,8 +732,8 @@ def restart_controller(gb, status):
         status.controller_monitor = psutil.Process(pc.pid)
     finally :
         status.lock.release()
-    log_output(pc.stdout, gb, WHITE, ['distributing Tasks', 'Getting task result', 'Queuing task', 'sync properties', 'Clearing', 'Cleared'])
-    log_output(pc.stderr, gb, RED)
+    log_output(pc.stdout, gb, WHITE, filter=['distributing Tasks', 'Getting task result', 'Queuing task', 'sync properties', 'Clearing', 'Cleared'])
+    log_output(pc.stderr, gb, RED, filter=[])
     set_progress_bar(gb, 0.4)
 
     while (pc.poll() is None and not os.path.exists(engine_json_path)) :
@@ -736,7 +749,7 @@ def restart_controller(gb, status):
             try:
                 status.taskclient = Client(client_json_path)
                 break
-            except Exception, e :
+            except Exception as e :
                 retry -=1
                 if retry == 0 :
                     break
@@ -788,14 +801,14 @@ def start_locals(gb,status,n):
         else: 
             set_status_message(gb,"Starting local engines", YELLOW)
             chief_path = os.path.dirname(os.path.realpath(__file__)) + "/ipengine_chief"
-            cmd = chief_path + " -t LOCAL -a " + str(status.address) + " -p " + str(status.port)
+            cmd = "python3.4exec " + chief_path + " -t LOCAL -a " + str(status.address) + " -p " + str(status.port)
             add_log_line(gb,"Starting engines using: " + cmd, GREEN)
             args = shlex.split(cmd)
         
             set_progress_bar(gb,0.0)
             for i in range(n):
                 e = Popen(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-                log_output(e.stderr,gb,RED)
+                log_output(e.stderr,gb,RED,filter=[])
                 status.local_engines.append(e)
                 time.sleep(1)
                 set_progress_bar(gb,float(i+1) / float(n))
@@ -843,7 +856,8 @@ def start_pbs(gb,status,n):
             args = shlex.split(cmd)
         
             for i in range(n):
-                eid = Popen(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE).communicate()[0]
+                eid = Popen(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE).communicate()[0].decode('utf-8')
+                add_log_line(gb,"PBS engine id: "+eid, GREEN)
                 status.pbs_engines.append(eid)
             time.sleep(2)
             set_status_message(gb,"PBS engines queued",GREEN)
@@ -972,12 +986,12 @@ def _get_subids_grid(id):
                         idstatus[id] = state.lower()
     
     id_by_state = defaultdict(list)
-    for id,state in idstatus.iteritems():
+    for id,state in idstatus.items():
         id_by_state[state].append(id)
 
     res = id_by_state.pop('submitted',[]) + id_by_state.pop('waiting',[]) + id_by_state.pop('ready',[]) + \
     id_by_state.pop('scheduled',[]) + id_by_state.pop('running',[]) + id_by_state.pop('done (success',[])
-    for values in id_by_state.itervalues():
+    for values in id_by_state.values():
         res += values
     return res
 
@@ -1107,7 +1121,7 @@ def reload_engines(gb,status, upload=True):
     Commands.lock.acquire()
     try:
         ccounter = 0
-        for engineid in Commands.active_engines.iterkeys():
+        for engineid in Commands.active_engines.keys():
             Commands.pending_command[engineid] = RESTART_ENGINE
             ccounter +=1
         if(ccounter == 0):
@@ -1188,7 +1202,7 @@ def report_restart() :
     try :
         add_log_line(gb, 'Controller status requested (%.2fMB used)' % status.controller_mem, CYAN)
         if controller_online(status) and status.should_restart :
-            result = 'WAIT'
+    	    result = 'WAIT'
         else :
             result = 'OK'
     finally :
@@ -1291,22 +1305,22 @@ def thread_check_commands():
         finally :
             Commands.lock.release()
         now = time.time()
-        for eid,last_seen_time in active_engines.iteritems():
+        for eid,last_seen_time in active_engines.items():
             if now - last_seen_time > TIMEOUT :
                 et = _unregister(eid)
                 add_log_line(gb,"Engine (" + et + ") with id " + eid + " timed out",RED)
         
         engine_type_count = defaultdict(int)
-        for engine,type in engine_types.iteritems():
+        for engine,type in engine_types.items():
             engine_type_count[type] += 1
         
         et_stats = defaultdict(list)
-        for engine,stats in engine_stats.iteritems():
+        for engine,stats in engine_stats.items():
             type = engine_types[engine]
             et_stats[type].append(stats)
         
         engine_type_stats = dict()
-        for type,statlist in et_stats.iteritems():
+        for type,statlist in et_stats.items():
             cpu = [stat[0] for stat in statlist]
             mem = [stat[1] for stat in statlist]
             memphys = [stat[2] for stat in statlist]
@@ -1396,7 +1410,7 @@ def thread_grid_monitor(status):
                                     skipfirst = False
                                 else:
                                     idstatus[id] = state.lower()
-            for state in idstatus.itervalues():
+            for state in idstatus.values():
                 countstatus[state] += 1
                     
             status.lock.acquire()
@@ -1426,7 +1440,7 @@ def get_hostname():
     try:
         addr=reversename.from_address(myip)
         myip = str(resolver.query(addr,"PTR")[0])[:-1]
-    except Exception,e:
+    except Exception as e:
         pass
 
     return myip
@@ -1463,7 +1477,7 @@ def main(scr, *args, **kwds):
 
     init_status(status, envname, address, port, iport, hwm, semaphore_key, recover)
     gb.scr = scr
-    gb.log_file = open('cluster.log','wb')
+    gb.log_file = open('cluster.log','w')
 
     build_windows(gb)
     t = start_status_display(gb,status)
@@ -1571,4 +1585,5 @@ def main(scr, *args, **kwds):
     except :
         pass
     time.sleep(2) #wait for all paint ops to finish
+
 curses.wrapper(main)
