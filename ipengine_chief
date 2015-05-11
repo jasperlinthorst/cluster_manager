@@ -1,8 +1,8 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 import subprocess, sys, getopt, time, shlex
 from subprocess import Popen
-import xmlrpclib
-import httplib
+import xmlrpc.client
+import http.client
 import socket
 import cluster_storage
 import os,sys
@@ -25,24 +25,24 @@ address = "localhost"
 loadenv = False
 port = "30024"
 
-class TimeoutHTTPConnection(httplib.HTTPConnection):
+class TimeoutHTTPConnection(http.client.HTTPConnection):
     def __init__(self,host,timeout=10):
-        httplib.HTTPConnection.__init__(self, host, timeout = timeout)
+        http.client.HTTPConnection.__init__(self, host, timeout = timeout)
         self.set_debuglevel(99)
 
-class TimeoutTransport(xmlrpclib.Transport):
+class TimeoutTransport(xmlrpc.client.Transport):
     def __init__(self, timeout = 10, *l, **kw):
-        xmlrpclib.Transport.__init__(self, *l, **kw)
+        xmlrpc.client.Transport.__init__(self, *l, **kw)
         self.timeout = timeout
 
     def make_connection(self, host):
         conn = TimeoutHTTPConnection(host, self.timeout)
         return conn
 
-class TimeoutServerProxy(xmlrpclib.ServerProxy):
+class TimeoutServerProxy(xmlrpc.client.ServerProxy):
     def __init__(self, uri, timeout = 10, *l, **kw):
         kw['transport'] = TimeoutTransport(timeout = timeout, use_datetime = kw.get('use_datetime', 0))
-        xmlrpclib.ServerProxy.__init__(self, uri, *l, **kw)
+        xmlrpc.client.ServerProxy.__init__(self, uri, *l, **kw)
 
 opts, args = getopt.getopt(sys.argv[1:],"e:t:a:lp:",["env=", "type=", "address=", "loadenv", "port="])
 for o, a in opts:
@@ -64,11 +64,11 @@ myip = s.getsockname()[0]
 try:
     addr = reversename.from_address(myip)
     myip = str(resolver.query(addr, "PTR")[0])[:-1]
-except Exception, e:
+except Exception as e:
     pass
 
 #self register
-print "[i] Preparing to register on " + address + ":" + port
+print("[i] Preparing to register on " + address + ":" + port)
 s = TimeoutServerProxy('http://' + address + ":" + port, timeout = REQUEST_TIMEOUT, allow_none = True)
 
 myid, mycodeid = None, None
@@ -78,15 +78,15 @@ while attempt > 0 :
     e_ncpu = psutil.NUM_CPUS
     try :
         myid, mycodeid = s.register(myip, mytype, e_ncpu, e_memtot / 1024.0 ** 2)
-    except (socket.error, httplib.HTTPException), serror :
+    except (socket.error, http.client.HTTPException) as serror :
         attempt -= 1
         sleep_time = random.randint(REGISTRATION_SLEEP, REGISTRATION_SLEEP + REGISTRATION_SLEEP_RANDOM)
-        print '[-] Failed registration, %d attempts left, sleeping for %d seconds' % (attempt, sleep_time)
+        print('[-] Failed registration, %d attempts left, sleeping for %d seconds' % (attempt, sleep_time))
         time.sleep(sleep_time)
     if myid is not None :
         break
 
-print "[+] Registered with controller, got id: " + myid
+print("[+] Registered with controller, got id: " + myid)
 
 last_seen = time.time()
 
@@ -97,22 +97,23 @@ from_json_path = cwd + "/../../ipcontroller-engine.json"
 
 def start_engine(mycodeid) :
     if loadenv :
-        print "[i] Retrieving code file from " + mycodeid 
+        print("[i] Retrieving code file from " + mycodeid) 
         code_path = cluster_storage.receive_file(mycodeid)
         
         cmd = "tar -xzf " + code_path
         args = shlex.split(cmd)
         r = Popen(args).wait()
         if (r):
-            raise RuntimeError, "Code unpacking failed" 
+            raise RuntimeError("Code unpacking failed") 
         
-        print "[i] Retrieving json file from " + from_json_path + " to " + json_path
+        print("[i] Retrieving json file from " + from_json_path + " to " + json_path)
         shutil.copyfile(from_json_path, json_path)
-        cmd = "python ../bin/ipengine --quiet --file=" + json_path
+        cmd = "python3.4exec ../bin/ipengine --quiet --file=" + json_path
     else:
-        cmd = "ipengine --quiet --file=" + local_json_path
+        ipenginepath=subprocess.check_output(["which","ipengine"]).decode('utf-8')
+        cmd = "python3.4exec "+ipenginepath+" --quiet --file=" + local_json_path
     
-    print "[i] Starting local engine..."
+    print("[i] Starting local engine...")
     args = shlex.split(cmd)
     lengine = Popen(args)
     return lengine
@@ -125,7 +126,7 @@ def stop_engine(lengine) :
         lengine.kill()
 
 def handler(signum, frame) :
-    print "[!] CATCH SYSTEM EXIT"
+    print("[!] CATCH SYSTEM EXIT")
     sys.exit()
 
 signal.signal(signal.SIGTERM, handler)
@@ -152,7 +153,7 @@ try :
         try :
             cmd, param = s.poll(myid, e_cpu, e_mem * e_ncpu, e_memphys / 1024.0 / 1024.0, e_memvirt / 1024.0 / 1024.0)
             last_seen = time.time()
-            print "\t[i] POLL", cmd
+            print("\t[i] POLL", cmd)
 
             if cmd :
                 if (cmd == DIE) :
@@ -169,15 +170,15 @@ try :
                     lengine_monitor = psutil.Process(lengine.pid)
                     continue
                 else :
-                    print "\t[-] UNKNOWN COMMAND RECEIVED, EXITING!"
+                    print("\t[-] UNKNOWN COMMAND RECEIVED, EXITING!")
                     stop_engine(lengine)
                     del lengine
                     lengine = None
                     break
-        except (socket.error, httplib.HTTPException), serror :
-            print '\t[!] Caught a socket error!'
+        except (socket.error, http.client.HTTPException) as serror :
+            print('\t[!] Caught a socket error!')
             if time.time() - last_seen > PING_TIMEOUT :
-                print '\t[-] Timeout triggered!'
+                print('\t[-] Timeout triggered!')
                 break
         time.sleep(PING_INTERVAL)
 except (Exception, KeyboardInterrupt, SystemExit) :

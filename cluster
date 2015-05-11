@@ -221,7 +221,7 @@ def thread_display_status(gb,status):
                 gb.wcom_status.addstr(1,1,"Controller: ")
                 if controller_online(status) :
                     r = status.controller_cpu / 100.0
-		    mem = status.controller_mem
+                    mem = status.controller_mem
                     if (r > 0.80 or mem >= 4096.0):
                         color = RED
                     elif(r > 0.50 or mem >= 2048.0):
@@ -565,13 +565,14 @@ def start_controller(gb,status):
     set_status_message(gb,"Waiting for controller to finish initialization...",YELLOW)
     set_progress_bar(gb,0.0)
     status.lock.acquire()
+    ipcontrollerpath=subprocess.check_output(["which","ipcontroller"])#.decode('utf-8') #check actual path of ipcontroller so we can switch python version in call
 
     internal = range(int(status.iport) + 10000, int(status.iport) + 10005)
     try:
         cwd = os.getcwd()
         engine_json_path = "./profile/security/ipcontroller-engine.json"
         client_json_path = "./profile/security/ipcontroller-client.json"
-        cmd = "ipcontroller --HubFactory.notifier_port=%d" % (internal[4], ) + \
+        cmd = "python3 "+ipcontrollerpath+" --HubFactory.notifier_port=%d" % (internal[4], ) + \
                           " --HubFactory.iopub=%d,%d" % (internal[3], int(status.iport) + 6) + \
                           " --HubFactory.task=%d,%d" % (internal[2], int(status.iport) + 5) + \
                           " --HubFactory.mux=%d,%d" % (internal[1], int(status.iport) + 4) + \
@@ -585,7 +586,7 @@ def start_controller(gb,status):
                           " --ProfileDir.location=" + cwd + "/profile/"
         
         if status.recover:
-            cmd = "ipcontroller --HubFactory.notifier_port=%d" % (internal[4], ) + \
+            cmd = "python3 "+ipcontrollerpath+" --HubFactory.notifier_port=%d" % (internal[4], ) + \
                     " --HubFactory.iopub=%d,%d" % (internal[3], int(status.iport) + 6) + \
                     " --HubFactory.task=%d,%d" % (internal[2], int(status.iport) + 5) + \
                     " --HubFactory.mux=%d,%d" % (internal[1], int(status.iport) + 4) + \
@@ -1187,7 +1188,7 @@ def report_restart() :
     try :
         add_log_line(gb, 'Controller status requested (%.2fMB used)' % status.controller_mem, CYAN)
         if controller_online(status) and status.should_restart :
-    	    result = 'WAIT'
+            result = 'WAIT'
         else :
             result = 'OK'
     finally :
@@ -1318,8 +1319,8 @@ def thread_check_commands():
             mem_max = float(numpy.mean(memvirt))
 
             engine_type_stats[type] = (cpu_mean,memp_mean,memp_max,mem_mean,mem_max)
-    	status.lock.acquire()
-    	try :
+        status.lock.acquire()
+        try :
              status.engine_type_count = engine_type_count
              status.engine_type_stats = engine_type_stats
              if (status.controller_monitor) :

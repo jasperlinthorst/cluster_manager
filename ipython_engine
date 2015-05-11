@@ -9,4 +9,6 @@ echo "Waiting..."
 WAIT=$[ ($RANDOM % 180) ]
 sleep $WAIT
 echo "Waiting period over for $PARAMNR, starting chief."
-XXAPPPATHXX/ipengine_chief -t PBS -a $ADDRESS -p $PORT
+PYTHONPATH=/opt/insy/env/sys_enhance/lib/python3.4/
+#python3.4exec XXAPPPATHXX/ipengine_chief -t PBS -a $ADDRESS -p $PORT
+python3.4exec $PBS_O_WORKDIR/ipengine_chief -t PBS -a $ADDRESS -p $PORT
