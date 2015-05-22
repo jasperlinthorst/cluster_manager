@@ -95,6 +95,8 @@ class status:
 NOSTAT = (0.0, 0.0, 0.0, 0.0, 0.0)
 
 def check_output(string, ignore_list = ['no version information available']) :
+    if isinstance(string,bytes):
+        string=string.decode('utf-8')
     lines = string.split('\n')
     for line in lines :
         line = line.strip()
@@ -166,7 +168,7 @@ def thread_log_output(file, gb, color, filter):
         line = file.readline()
         if (not line):
             break
-        if not(isinstance(line,str)):
+        if isinstance(line,bytes):
             line=line.decode("utf-8")
 
         if (filter and len([f for f in filter if f in line]) > 0) :
@@ -185,11 +187,11 @@ def get_pbs_stats(status):
     try:
         cmd = "qstat " + " ".join(status.pbs_engines)
         args = shlex.split(cmd)
-        p = Popen(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+        p = Popen(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE,universal_newlines=True)
         cmd = "gawk '{print $5}'"
         args = shlex.split(cmd)
-        p2 = Popen(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE,stdin=p.stdout)
-        output = p2.communicate()[0].decode('utf-8')
+        p2 = Popen(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE,stdin=p.stdout,universal_newlines=True)
+        output = p2.communicate()[0]
         
         z = defaultdict(int)
         for k in output[2:]:
@@ -612,7 +614,7 @@ def start_controller(gb,status):
 
         add_log_line(gb, "cmd: %s" % cmd, MAGENTA)
 
-        pc = Popen(args, stdout = subprocess.PIPE, stderr = subprocess.PIPE)
+        pc = Popen(args, stdout = subprocess.PIPE, stderr = subprocess.PIPE, universal_newlines=True)
         status.controller = pc
         status.controller_monitor = psutil.Process(pc.pid)
         status.should_restart = False
@@ -620,7 +622,7 @@ def start_controller(gb,status):
         status.lock.release()
     
     log_output(pc.stdout, gb, WHITE, filter=['distributing Tasks', 'Getting task result', 'Queuing task', 'sync properties', 'Clearing', 'Cleared'])
-    log_output(pc.stderr, gb, RED, filter=['queue_request','heartbeat:missed'])
+    log_output(pc.stderr, gb, RED, filter=['queue_request','heartbeat::missed'])
     set_progress_bar(gb,0.4)
     
     while(pc.poll() is None and not os.path.exists(engine_json_path)):
@@ -727,7 +729,7 @@ def restart_controller(gb, status):
         shutil.move(engine_json_path + '.bak', engine_json_path)
         add_log_line(gb, "Executing: " + cmd, GREEN)
         args = shlex.split(cmd)
-        pc = Popen(args, stdout = subprocess.PIPE, stderr = subprocess.PIPE)
+        pc = Popen(args, stdout = subprocess.PIPE, stderr = subprocess.PIPE, universal_newlines=True)
         status.controller = pc
         status.controller_monitor = psutil.Process(pc.pid)
     finally :
@@ -807,7 +809,7 @@ def start_locals(gb,status,n):
         
             set_progress_bar(gb,0.0)
             for i in range(n):
-                e = Popen(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+                e = Popen(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE, universal_newlines=True)
                 log_output(e.stderr,gb,RED,filter=[])
                 status.local_engines.append(e)
                 time.sleep(1)
@@ -856,7 +858,7 @@ def start_pbs(gb,status,n):
             args = shlex.split(cmd)
         
             for i in range(n):
-                eid = Popen(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE).communicate()[0].decode('utf-8')
+                eid = Popen(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE,universal_newlines=True).communicate()[0]
                 add_log_line(gb,"PBS engine id: "+eid, GREEN)
                 status.pbs_engines.append(eid)
             time.sleep(2)
@@ -880,7 +882,7 @@ def stop_pbs(gb,status,n):
             for i,eid in enumerate(stop_engines):
                 cmd = "qdel " + eid
                 args = shlex.split(cmd)
-                p = Popen(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+                p = Popen(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE, universal_newlines=True)
                 log_output(p.stdout,gb,WHITE)
                 log_output(p.stderr,gb,RED)
                 p.wait()
@@ -918,7 +920,8 @@ def start_grid(gb,status,n,selgrid="all"):
             cmd = "glite-wms-job-submit -d " + os.environ["USER"] + " --nomsg " + tmp_jdl
 
             args = shlex.split(cmd)
-            out = Popen(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE).communicate()
+            out = Popen(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE,universal_newlines=True).communicate()
+
             if not check_output(out[1]) :
                 add_log_line(gb,"GRID job submission failed",RED)
                 for line in out[1].split('\n'):
@@ -965,7 +968,7 @@ def _get_subids_grid(id):
     args = shlex.split(cmd)
     env = os.environ.copy()
     del env['PYTHONPATH']
-    r = Popen(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=env).communicate()
+    r = Popen(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=env,universal_newlines=True).communicate()
     if(r[1]):   
         add_log_line(gb,"Error while inquiring GRID status:",RED)
         for line in r[1].split('\n'):
@@ -1019,7 +1022,7 @@ def upload_code(gb,status):
     
     set_status_message(gb,"Creating code archive",YELLOW)
     set_progress_bar(gb,0.0)
-    p = Popen(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    p = Popen(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE,universal_newlines=True)
     log_output(p.stdout,gb,WHITE)
     log_output(p.stderr,gb,RED)
     r = p.wait()
@@ -1391,7 +1394,7 @@ def thread_grid_monitor(status):
                 args = shlex.split(cmd)
                 env = os.environ.copy()
                 del env['PYTHONPATH']
-                r = Popen(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=env).communicate()
+                r = Popen(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=env,universal_newlines=True).communicate()
                 if(r[1]):   
                     add_log_line(gb,"Error while inquiring GRID status:",RED)
                     for line in r[1].split('\n'):
