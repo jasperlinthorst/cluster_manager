@@ -74,8 +74,8 @@ s = TimeoutServerProxy('http://' + address + ":" + port, timeout = REQUEST_TIMEO
 myid, mycodeid = None, None
 attempt = REGISTRATION_ATTEMPTS
 while attempt > 0 :
-    e_memtot = psutil.TOTAL_PHYMEM
-    e_ncpu = psutil.NUM_CPUS
+    e_memtot = psutil.virtual_memory().total #psutil.TOTAL_PHYMEM
+    e_ncpu = psutil.cpu_count() #psutil.NUM_CPUS
     try :
         myid, mycodeid = s.register(myip, mytype, e_ncpu, e_memtot / 1024.0 ** 2)
     except (socket.error, http.client.HTTPException) as serror :
