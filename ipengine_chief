@@ -146,12 +146,13 @@ try :
             s.unregister(myid)
             break
         
-        e_cpu = lengine_monitor.get_cpu_percent()
-        e_mem = lengine_monitor.get_memory_percent()
-        e_memphys, e_memvirt = lengine_monitor.get_memory_info()
+        e_cpu = lengine_monitor.cpu_percent()
+        e_mem = lengine_monitor.memory_percent()
+        e_mem = lengine_monitor.memory_info()
+        e_memphys, e_memvirt = e_mem.rss, e_mem.vms
 
         try :
-            cmd, param = s.poll(myid, e_cpu, e_mem * e_ncpu, e_memphys / 1024.0 / 1024.0, e_memvirt / 1024.0 / 1024.0)
+            cmd, param = s.poll(myid, e_cpu, e_mem * e_ncpu, float(e_memphys) / float(1024.0) / float(1024.0), float(e_memvirt) / float(1024.0) / float(1024.0))
             last_seen = time.time()
             print("\t[i] POLL", cmd)
 

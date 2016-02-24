@@ -1,14 +1,8 @@
-#PBS -N ipython
-#PBS -j oe
-#PBS -k n
-#PBS -V
-#PBS -r n
-cd $PBS_O_WORKDIR
-#Wait a random time to not overload the server after submission of a number of jobs.
-echo "Waiting..."
-WAIT=$[ ($RANDOM % 180) ]
-sleep $WAIT
-echo "Waiting period over for $PARAMNR, starting chief."
-PYTHONPATH=/opt/insy/env/sys_enhance/lib/python3.4/
-#python3.4exec XXAPPPATHXX/ipengine_chief -t PBS -a $ADDRESS -p $PORT
-python3.4exec $PBS_O_WORKDIR/ipengine_chief -t PBS -a $ADDRESS -p $PORT
+#!/bin/bash
+#SBATCH -N 1        # request 1 nodes
+#SBATCH -p fat      # request partition 'fat', 
+#SBATCH -n 1 -c 4   # request 4 cores on 1 node
+#SBATCH -t 10:20:30 # 10 hours plus 20 minutes plus 30 seconds
+source ~/env/paths
+python3 ipengine_chief -t SLURM -a 10.0.200.14 -p 30016
+

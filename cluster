@@ -69,6 +69,7 @@ class status:
     local_engines = []
 
     pbs_engines = []
+    slurm_engines = []
     pbs_stats = (0,0,0)
 
     grid_engines = []
@@ -201,6 +202,27 @@ def get_pbs_stats(status):
         status.lock.release()
     return res
 
+def get_slurm_stats(status):
+    if (not status.slurm_engines):
+        return (0, 0, 0)
+    status.lock.acquire()
+    try:
+        cmd = "squeue -j " + ",".join(status.slurm_engines)
+        args = shlex.split(cmd)
+        p = Popen(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE,universal_newlines=True)
+        cmd = "gawk '{print $5}'"
+        args = shlex.split(cmd)
+        p2 = Popen(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE,stdin=p.stdout,universal_newlines=True)
+        output = p2.communicate()[0]
+        
+        z = defaultdict(int)
+        for k in output[2:]:
+            z[k] += 1
+        res = (len(status.slurm_engines),z['PD']+z['CF'],z['R'])
+    finally:
+        status.lock.release()
+    return res
+
 def get_stat_str(stats):
     cpu,memp,mempmax,mem,memmax = stats
     if(cpu < 0.50 or mempmax > 0.90):
@@ -283,6 +305,39 @@ def thread_display_status(gb,status):
                     stats = status.engine_type_stats.get("PBS",NOSTAT)
                     descr,color = get_stat_str(stats)
                     gb.wcom_status.addstr(5,52,descr,curses.color_pair(color))
+
+
+                gb.wcom_status.addstr(6,1,"SLURM engines: ")
+                stats = get_slurm_stats(status)
+
+                status.slurm_stats = stats
+                unaccounted = stats[2] - status.engine_type_count['SLURM']
+                if(stats[2] and not unaccounted != 0):
+                    color = GREEN
+                else:
+                    color = YELLOW
+                if(unaccounted != 0):
+                    gb.wcom_status.addstr(6,18,str(stats[2]) + "("+str(-unaccounted) +")",curses.color_pair(color))
+                else:
+                    gb.wcom_status.addstr(6,18,str(stats[2]),curses.color_pair(color))
+
+                if(stats[1]):
+                    gb.wcom_status.addstr(6,28,'Queued: ' + str(stats[1]),curses.color_pair(YELLOW))
+                failed = stats[0] - (stats[1] + stats[2])
+                if(failed):
+                    gb.wcom_status.addstr(6,40,'Failed: ' + str(failed),curses.color_pair(RED))
+
+                if(sizey > 90 and status.pbs_engines):
+                    stats = status.engine_type_stats.get("SLURM",NOSTAT)
+                    descr,color = get_stat_str(stats)
+                    gb.wcom_status.addstr(6,52,descr,curses.color_pair(color))
+
+
+
+
+
+
+
 
                 gb.wcom_status.addstr(7,1,"GRID engines: ")
                 running = status.grid_count_status['running']
@@ -513,11 +568,12 @@ def init_commands(gb):
             gb.wcom.addstr(2,1,"Start/stop local engines: s/x [n]")
             gb.wcom.addstr(3,1,"Start/stop PBS engines: d/c [n]")
             gb.wcom.addstr(4,1,"Start/stop GRID engines: f/v [n]")
-            gb.wcom.addstr(5,1,"Reload all engines: w")
-            gb.wcom.addstr(6,1,"Restart all engines: e")
-            gb.wcom.addstr(7,1,"Restart controller: y")
-            gb.wcom.addstr(8,1,"Restart client: p")
-            gb.wcom.addstr(10,1,"Shutdown: q")
+            gb.wcom.addstr(5,1,"Start/stop SLURM engines: g/b [n]")
+            gb.wcom.addstr(6,1,"Reload all engines: w")
+            gb.wcom.addstr(7,1,"Restart all engines: e")
+            gb.wcom.addstr(8,1,"Restart controller: y")
+            gb.wcom.addstr(9,1,"Restart client: p")
+            gb.wcom.addstr(11,1,"Shutdown: q")
             gb.wcom.refresh()
     except Exception as e:
         pass
@@ -866,6 +922,61 @@ def start_pbs(gb,status,n):
             add_log_line(gb,str(n) + " PBS engines queued",MAGENTA)
     finally:
         status.lock.release()
+
+def start_slurm(gb,status,n):
+    status.lock.acquire()
+    try:
+        if(not controller_online(status)):
+            set_status_message(gb,"Controller is not online",YELLOW)
+        elif(n < 0):
+            set_status_message(gb,"Invalid number of engines to be started: " + str(n),YELLOW)
+        else: 
+            set_status_message(gb,"Starting SLURM engines",YELLOW)
+            engine_path = os.path.dirname(os.path.realpath(__file__))
+            cmd = "sbatch ipython_engine"
+            add_log_line(gb,"Starting engines using: " + cmd,GREEN)
+            args = shlex.split(cmd)
+        
+            for i in range(n):
+                eid = Popen(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE,universal_newlines=True).communicate()[0].split()[-1]
+		#"Submitted batch job 2003059"
+                add_log_line(gb,"SLURM engine id: "+eid, GREEN)
+                status.slurm_engines.append(eid)
+            time.sleep(2)
+            set_status_message(gb,"SLURM engines queued",GREEN)
+            add_log_line(gb,str(n) + " SLURM engines queued",MAGENTA)
+    finally:
+        status.lock.release()
+
+def stop_slurm(gb,status,n):
+    status.lock.acquire()
+    try:
+        if(not status.slurm_engines and n != 0):
+            set_status_message(gb,"No SLURM engines running",YELLOW)
+        elif(n <= 0 or n > len(status.slurm_engines)):
+            set_status_message(gb,"Invalid number of engines to be stopped: " + str(n),YELLOW)
+        else:
+            set_status_message(gb,"Stopping SLURM engines",YELLOW)
+            stop_engines = status.slurm_engines[-n:]
+            status.slurm_engines = status.slurm_engines[:-n]
+            set_progress_bar(gb,0.0)
+            for i,eid in enumerate(stop_engines):
+                cmd = "scancel " + eid
+                args = shlex.split(cmd)
+                p = Popen(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE, universal_newlines=True)
+                log_output(p.stdout,gb,WHITE)
+                log_output(p.stderr,gb,RED)
+                p.wait()
+                set_progress_bar(gb,float(i+1)/float(n))
+            
+            time.sleep(2)
+            stop_progress_bar(gb)
+            set_status_message(gb,"SLURM engines stopped",GREEN)
+            add_log_line(gb,str(n) + " SLURM engines stopped",MAGENTA)
+    finally: 
+        status.lock.release()
+
+
 
 def stop_pbs(gb,status,n):
     status.lock.acquire()
@@ -1549,6 +1660,7 @@ def main(scr, *args, **kwds):
                 cmd = get_number(gb, "Number of engines (def=all): ",len(status.local_engines))
                 if(not cmd is None):
                     stop_locals(gb,status,cmd)
+
             elif c == ord('d'):  #START PBS engines
                 cmd = get_number(gb, "Number of engines (def=4): ",4)
                 if(not cmd is None):
@@ -1558,6 +1670,17 @@ def main(scr, *args, **kwds):
                 cmd = get_number(gb, "Number of engines (def=all): ",len(status.pbs_engines))
                 if(not cmd is None):
                     stop_pbs(gb,status,cmd)
+
+            elif c == ord('g'):  #START SLURM engines
+                cmd = get_number(gb, "Number of engines (def=4): ",4)
+                if(not cmd is None):
+                    start_slurm(gb,status,cmd)
+
+            elif c == ord('b'):  #STOP SLURM engines
+                cmd = get_number(gb, "Number of engines (def=all): ",len(status.pbs_engines))
+                if(not cmd is None):
+                    stop_slurm(gb,status,cmd)
+
             elif c == ord('f'):  #START GRID engines
                 cmd = get_number(gb, "Number of engines (def=4): ",4)
                 selgrid = enter_command(gb, "Enter specific grid (def=all): ")
@@ -1570,6 +1693,7 @@ def main(scr, *args, **kwds):
                 cmd = get_number(gb, "Number of engines (def=all): ",sum(status.grid_engines_count))
                 if(not cmd is None):
                     stop_grid(gb,status,cmd)
+
             elif c == ord('u') :  # Update ncurses screen
                 gb.scr.refresh()
     except Exception:
