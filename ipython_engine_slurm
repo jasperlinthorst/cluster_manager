@@ -1,0 +1,8 @@
+#!/bin/bash
+#SBATCH -p fat      # request partition 'fat', 
+#SBATCH --mem 32000 # request 32GB of memory
+#SBATCH -c 4        # request 4 cores per engine
+#SBATCH -t 8:00:00  # 8 hours
+source ~/env/paths
+python3 $3/ipengine_chief -t SLURM -a $1 -p $2
+
